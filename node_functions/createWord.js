@@ -1,9 +1,24 @@
-// Import OpenAI client
+// Import OpenAI client and filesystem modules
 const { Configuration, OpenAIApi } = require("openai");
-const configuration = new Configuration({
-  apiKey: "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",
-});
-const openai = new OpenAIApi(configuration);
+const fs = require("fs");
+let openai = null;
+
+
+function main() {
+    //Set the API key to use the openai client
+    const apiKey = fs.readFileSync('C:\\WS\\GoogleCloudFunctions\\Candle\\openai_api_key.txt', 'utf-8');
+    const configuration = new Configuration({
+        apiKey: apiKey,
+    });
+    openai = new OpenAIApi(configuration);
+
+    //Get the request from the client
+    const request_json = loadRequest();
+
+    //Populate the word document
+    createWord(request_json);
+}
+
 
 function loadRequest() {
 
@@ -32,6 +47,7 @@ function Meaning() {
     this.definition = "";
     this.type = "";
 }
+
 
 // Creates all the data necessary in JSON format
 // to create a word document later in Firestore.
@@ -136,5 +152,4 @@ async function populate(document) {
 
 
 //Execute all the above code
-const request_json = loadRequest();
-createWord(request_json);
+main();
