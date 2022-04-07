@@ -1,7 +1,7 @@
 // Import OpenAI client
 const { Configuration, OpenAIApi } = require("openai");
 const configuration = new Configuration({
-  apiKey: "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",
+  apiKey: "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",
 });
 const openai = new OpenAIApi(configuration);
 
@@ -10,7 +10,6 @@ function loadRequest() {
     // Request coming from the search bar in the Candle app
     const request_object = {
         words: "draft",
-        num_words: 1,
         meanings: [],
         translations: [],
         synonyms: [],
@@ -47,19 +46,17 @@ function Meaning() {
 5)      Ask for an example of that word/phrase. */
 async function createWord(request) {
     var document = JSON.parse(request);
-    if (document.num_words === 1) {
-        let word = document.words;
-        let isValid = await isValidWord(word);
-        if (isValid) {
-            var newDocument = document;
-            newDocument = await populate(document);
-        }        
+    const wordsCount = document.words.split(/\s/).length;
+    const isValidWord = await checkWord(document.words);
+    if (wordsCount === 1 && isValidWord) {
+        await populate(document);
+        console.log(JSON.stringify(document));
     }
 }
 
 
 // Checks if a given input is a valid word in the english dictionary.
-async function isValidWord(word) {  
+async function checkWord(word) {  
     const answer = await openai.createAnswer({
         model: "davinci",
         question: `Is ${word} an english word?`,
@@ -82,7 +79,7 @@ async function populate(document) {
     //DO THIS PART ASYNCHRONOUSLY...
 
     //GPT3 creates a response with the 5 most common meanings for your word
-    const mean_p = await openai.createCompletion("text-davinci-002", 
+    const mean_p = openai.createCompletion("text-davinci-002", 
     {
         prompt: `These are the 5 most common meanings for '${document.words}':\r\n`
         + "(do not repeat the same phrase twice)\r\n" + "1.",
@@ -90,50 +87,54 @@ async function populate(document) {
     });
 
     //GPT3 creates a response with 10 spanish translations for your word
-    const tran_p = await openai.createCompletion("text-davinci-002", 
+    const tran_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `These are 10 synonyms for '${document.words}' in Spanish:\r\n`,
+        prompt: `These are 10 synonyms for '${document.words}' in Spanish, separated by commas:\r\n`,
         max_tokens: 100
     });
 
     //GPT3 creates a response with 10 synonyms for your word
-    const syn_p = await openai.createCompletion("text-davinci-002", 
+    const syn_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `These are 10 synonyms for '${document.words}':\r\n`,
+        prompt: `These are 10 synonyms for '${document.words}', separated by commas:\r\n`,
         max_tokens: 100
     });
 
     //GPT3 creates a response with 3 phrase examples for your word
-    const ex_p = await openai.createCompletion("text-davinci-002", 
+    const ex_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: "TODO...",
+        prompt: `Write 3 phrases with '${document.words}' and a lenght of 10 words or more:\r\n1.`,
+        temperature: 0.9,
         max_tokens: 150
     });
 
     //This executes all the above promises asynchronously so they complete in parallel
-    Promise.all([mean_p, syn_p, tran_p, ex_p])
+    await Promise.all([mean_p, tran_p, syn_p, ex_p])
     .then(([r_mean, r_tran, r_syn, r_ex]) => {
         //Convert the meanings response text to an array
-        var meanings_txt = `1.${r_mean.data.choices[0].text}`;  
+        var meanings_txt = `1.${r_mean.data.choices[0].text}`;
         var meanings = meanings_txt.split(/\d../);
         //Convert the translations response text to an array
         var translations_txt = r_tran.data.choices[0].text;
         var translations = translations_txt.split(/,/);
+        translations.forEach((tr, i) => {translations[i] = tr.replace(/\r?\n|\r|^\s+/gm, '').toLowerCase();});
         //Convert the synonyms response text to an array
         var synonyms_txt = r_syn.data.choices[0].text;
         var synonyms = synonyms_txt.split(/,/);
+        synonyms.forEach((syn, i) => {synonyms[i] = syn.replace(/\r?\n|\r|^\s+/gm, '').toLowerCase();});
         //Convert the examples response text to an array
         var examples_txt = r_ex.data.choices[0].text;
-        var examples = examples_txt.split(/,/);
+        var examples = examples_txt.split(/\d../)
+        examples.forEach((ex, i) => {examples[i] = ex.replace(/\r?\n|\r|^\s+/gm, '');});
         //Store the meanings into the document object    
-        document.meanings = meanings; //This line is WRONG, the elements of this array are not 'Meaning objects'
-        document.translations = translations;
-        document.synonyms = synonyms;
-        document.examples = examples;
+        //document.meanings.push(...meanings); //This line is WRONG, the elements of this array are not 'Meaning objects'
+        document.translations.push(...translations);
+        document.synonyms.push(...synonyms);
+        document.examples.push(...examples);
     });
 }
 
 
 //Execute all the above code
-loadRequest();
+const request_json = loadRequest();
 createWord(request_json);
