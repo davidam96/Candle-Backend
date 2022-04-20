@@ -5,8 +5,7 @@ import { Configuration, OpenAIApi } from "openai";
 const configuration = new Configuration({
     //For GCF, type this instead (after setting up the 'OPENAI_API_KEY'
     //environment variable with its value equal to the API key):
-    //apiKey: process.env.OPENAI_API_KEY,
-    apiKey: "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",
+    apiKey: process.env.OPENAI_API_KEY,
 });
 let openai = new OpenAIApi(configuration);
 
