@@ -3,16 +3,17 @@ import { Configuration, OpenAIApi } from "openai";
 
 //Set the API key to use the openai client
 const configuration = new Configuration({
-    //For GCF, type this instead (after setting up the 'OPENAI_API_KEY'
-    //environment variable with its value equal to the API key):
+    //Remember setting up the 'OPENAI_API_KEY' environment variable with its
+    //value equal to the API key both in your local and GCF's environment variables:
+    //(In case of the local system, you have to reboot in order for the env_var to appear)
     apiKey: process.env.OPENAI_API_KEY,
 });
 let openai = new OpenAIApi(configuration);
 
 
-//Google Cloud functions initializer (not relevant in local execution)
+//Google Cloud functions entry point (not relevant in local execution)
 export async function dictionaryGenerator(req, res) {
-    let words = req.body.words || "dog";
+    let words = req.body.words || "";
     await init(words).then(doc => {
       console.log(doc);
       res.status(200).send(doc);
@@ -47,8 +48,10 @@ export async function init(words) {
 export class Request {
   constructor(words) {
     this.words=words;
-    this.meanings=[];
+    this.word_count=words.split(/\s/gm).length;
+    this.combinations=[];
     this.types=[];
+    this.meanings=[];
     this.translations=[];
     this.synonyms=[];
     this.examples=[];
@@ -61,7 +64,7 @@ export class Response {
   constructor(words) {
     this.data=new Request(words);
     this.error="";
-    this.errCode=-1;
+    this.error_code=-1;
   }
 }
 
@@ -69,18 +72,21 @@ export class Response {
 //Checks wether a word or a phrase is a valid one
 export async function errorHandler(request, response) {
     const charCount = request.words.length;
-    const wordsCount = request.words.split(/\s/).length;
-    if (wordsCount === 1 && charCount <= 20) {
+    if (request.words === "") {
+        response.error = "Empty request.";
+        response.error_code = 0;
+    }
+    else if (request.word_count === 1 && charCount <= 20) {
         const isValidWord = await checkWord(request.words);
         if (!isValidWord) {
             response.error = "Invalid word.";
-            response.errCode = 0;
+            response.error_code = 1;
         }
     }
-    else if (wordsCount > 1 && wordsCount < 10 && charCount <= 100) {
+    else if (request.word_count > 1 && request.word_count < 10 && charCount <= 100) {
         //First we check if each given word in the phrase is valid
         let allWordsAreValid = true;
-        const words = request.words.split(/\s/);
+        const words = request.words.split(/\s/gm);
         const promises = [];
         words.forEach(word => {
             promises.push(checkWord(word));
@@ -90,7 +96,7 @@ export async function errorHandler(request, response) {
           results.find(result => {
             if (!result) {
               response.error = "The phrase contains an invalid word."
-              response.errCode = 1;
+              response.error_code = 2;
               allWordsAreValid = false;
               return true;
             }
@@ -103,13 +109,13 @@ export async function errorHandler(request, response) {
             const isValidPhrase = await checkPhrase(request);
             if (!isValidPhrase) {
                 response.error = "Invalid phrase. It's neither an idiom nor a verb";
-                response.errCode = 2;
+                response.error_code = 3;
             }
         }
     }
     else {
         response.error = "Invalid request format.";
-        response.errCode = 3;
+        response.error_code = 4;
     }
     return response;
 }
@@ -117,19 +123,13 @@ export async function errorHandler(request, response) {
 
 // Checks if a given input is a valid word in the english dictionary.
 export async function checkWord(word) {  
-    const answer = await openai.createAnswer({
-        model: "davinci",
-        question: `Is ${word} an english word?`,
-        examples_context: "English words: dog, cat, phone, joy, ...",
-        examples: [["Is 'dog' an english word?", "Yes"],
-                  ["Is 'asdafsaf' an english word?", "No"]],
-        documents: [],
-        max_tokens: 1
+    const answer = await openai.createCompletion("text-davinci-002", 
+    {
+        prompt: `Is '${word}' an english word?:\r\n`
+        + "(answer with yes/no)\r\n",
+        max_tokens: 5
     });
-    if (answer.data.answers !== null && 
-        answer.data.answers[0].toLowerCase().includes("yes"))
-        return true;
-    return false;
+    return answer.data.choices[0].text.toLowerCase().includes("yes");
 }
 
 
@@ -173,7 +173,7 @@ export async function checkPhrase(request) {
     {
         prompt: `Is the phrase '${request.words}' a verb?:\r\n`
         + "(answer with yes/no)\r\n",
-        max_tokens: 5
+        max_tokens: 20
     });
 
     //Fills the word type and returns true if the
@@ -205,7 +205,7 @@ export async function populate(request) {
     });
 
     //GPT3 sorts the possible syntactic types for a given word
-    if (request.words.split(/\s/).length === 1) {
+    if (request.words.split(/\s/gm).length === 1) {
         const types = await sortTypes(request.words);
         request.types.push(...types);
     }
@@ -237,19 +237,19 @@ export async function populate(request) {
     .then(([r_mean, r_tran, r_syn, r_ex]) => {
         //Convert the meanings response text to an array
         const meanings_txt = `1.${r_mean.data.choices[0].text.toLowerCase()}`;
-        const meanings = meanings_txt.split(/\d./);
+        const meanings = meanings_txt.split(/\d./gm);
         cleanArray(meanings);
         //Convert the translations response text to an array
         const translations_txt = r_tran.data.choices[0].text.toLowerCase();
-        const translations = translations_txt.split(/\d.|,|\\./);
+        const translations = translations_txt.split(/\d.|,|\\./gm);
         cleanArray(translations);
         //Convert the synonyms response text to an array
         const synonyms_txt = r_syn.data.choices[0].text.toLowerCase();
-        const synonyms = synonyms_txt.split(/\d.|,|\\./);
+        const synonyms = synonyms_txt.split(/\d.|,|\\./gm);
         cleanArray(synonyms);
         //Convert the examples response text to an array
         const examples_txt = r_ex.data.choices[0].text;
-        const examples = examples_txt.split(/\d./);
+        const examples = examples_txt.split(/\d./gm);
         cleanArray(examples);
         //Store all the data into the request object
         request.meanings.push(...meanings);
@@ -330,4 +330,4 @@ export async function sortTypes(word) {
 
 
 //Execute all the above code
-init("dog");
+init("go along with");
