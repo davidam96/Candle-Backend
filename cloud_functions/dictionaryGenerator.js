@@ -23,6 +23,9 @@ export async function dictionaryGenerator(req, res) {
 
 //Main function, executes everything else
 export async function init(words) {
+    //Curate the words request
+    words = curateWords(words);
+
     //Parse the request JSON into a request object
     let request = new Request(words);
 
@@ -66,6 +69,10 @@ export class Response {
     this.error="";
     this.errorCode=-1;
   }
+}
+
+export function curateWords(words) {
+    return words.toLowerCase().trim().replace(/^(to )+/gm, '');
 }
 
 
@@ -163,7 +170,7 @@ export async function checkPhrase(request) {
     //GPT3 sorts out wether a group of words is an idiom
     const idm_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Is the phrase '${request.words}' an idiom?:\r\n`
+        prompt: `Is '${request.words}' an idiom?:\r\n`
         + "(answer with yes/no)\r\n",
         max_tokens: 5
     });
@@ -171,7 +178,7 @@ export async function checkPhrase(request) {
     //GPT3 sorts out wether a group of words is a verb
     const vb_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Is the phrase '${request.words}' a verb?:\r\n`
+        prompt: `Is 'to ${request.words}' a valid verb?:\r\n`
         + "(answer with yes/no)\r\n",
         max_tokens: 20
     });
@@ -330,4 +337,4 @@ export async function sortTypes(word) {
 
 
 //Execute all the above code
-init("go along with");
+init("to make do");
