@@ -48,7 +48,7 @@ export async function init(words) {
 export class Request {
   constructor(words) {
     this.words=words;
-    this.word_count=words.split(/\s/gm).length;
+    this.wordCount=words.split(/\s/gm).length;
     this.combinations=[];
     this.types=[];
     this.meanings=[];
@@ -64,7 +64,7 @@ export class Response {
   constructor(words) {
     this.data=new Request(words);
     this.error="";
-    this.error_code=-1;
+    this.errorCode=-1;
   }
 }
 
@@ -74,16 +74,16 @@ export async function errorHandler(request, response) {
     const charCount = request.words.length;
     if (request.words === "") {
         response.error = "Empty request.";
-        response.error_code = 0;
+        response.errorCode = 0;
     }
-    else if (request.word_count === 1 && charCount <= 20) {
+    else if (request.wordCount === 1 && charCount <= 20) {
         const isValidWord = await checkWord(request.words);
         if (!isValidWord) {
             response.error = "Invalid word.";
-            response.error_code = 1;
+            response.errorCode = 1;
         }
     }
-    else if (request.word_count > 1 && request.word_count < 10 && charCount <= 100) {
+    else if (request.wordCount > 1 && request.wordCount < 10 && charCount <= 100) {
         //First we check if each given word in the phrase is valid
         let allWordsAreValid = true;
         const words = request.words.split(/\s/gm);
@@ -96,7 +96,7 @@ export async function errorHandler(request, response) {
           results.find(result => {
             if (!result) {
               response.error = "The phrase contains an invalid word."
-              response.error_code = 2;
+              response.errorCode = 2;
               allWordsAreValid = false;
               return true;
             }
@@ -109,13 +109,13 @@ export async function errorHandler(request, response) {
             const isValidPhrase = await checkPhrase(request);
             if (!isValidPhrase) {
                 response.error = "Invalid phrase. It's neither an idiom nor a verb";
-                response.error_code = 3;
+                response.errorCode = 3;
             }
         }
     }
     else {
         response.error = "Invalid request format.";
-        response.error_code = 4;
+        response.errorCode = 4;
     }
     return response;
 }
@@ -285,7 +285,7 @@ export async function sortTypes(word) {
 
     const vb_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Is '${word}' sometimes used as a verb?\r\n`
+        prompt: `Is 'to ${word}' a valid verb?\r\n`
         + "(answer with yes/no)\r\n",
         max_tokens: 5
     });
