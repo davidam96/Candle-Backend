@@ -248,11 +248,11 @@ export async function populate(request) {
         cleanArray(meanings);
         //Convert the translations response text to an array
         const translations_txt = r_tran.data.choices[0].text.toLowerCase();
-        const translations = translations_txt.split(/\d.|,|\\./gm);
+        const translations = translations_txt.split(/\d.|,|\r?\n|\\./gm);
         cleanArray(translations);
         //Convert the synonyms response text to an array
         const synonyms_txt = r_syn.data.choices[0].text.toLowerCase();
-        const synonyms = synonyms_txt.split(/\d.|,|\\./gm);
+        const synonyms = synonyms_txt.split(/\d.|,|\r?\n|\\./gm);
         cleanArray(synonyms);
         //Convert the examples response text to an array
         const examples_txt = r_ex.data.choices[0].text;
@@ -337,4 +337,4 @@ export async function sortTypes(word) {
 
 
 //Execute all the above code
-init("to make do");
+init("to make do with what one has");
