@@ -96,7 +96,7 @@ export async function errorHandler(request, response) {
         const words = request.words.split(/\s/gm);
         const promises = [];
         words.forEach(word => {
-            promises.push(checkWord(word));
+            promises.push(checkWord(word.replace(/'([\s\S]*)$/gm, '')));
         });
         await Promise.all(promises)
         .then(results => {
@@ -132,7 +132,7 @@ export async function errorHandler(request, response) {
 export async function checkWord(word) {  
     const answer = await openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Is '${word}' an english word?:\r\n`
+        prompt: `Is "${word}" an english word?:\r\n`
         + "(answer with yes/no)\r\n",
         max_tokens: 5
     });
@@ -149,7 +149,7 @@ export async function checkPhrase(request) {
     //GPT3 checks wether a group of words is gramatically correct
     const gram_p = await openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Is the phrase '${request.words}' gramatically correct?:\r\n`
+        prompt: `Is the phrase "${request.words}" gramatically correct?:\r\n`
         + "(answer with yes/no)\r\n",
         max_tokens: 5
     });
@@ -159,7 +159,7 @@ export async function checkPhrase(request) {
     if (!isGramaticallyCorrect) {
         const corr_p = await openai.createCompletion("text-davinci-002", 
         {
-            prompt: `Correct '${request.words}' gramatically:\r\n`
+            prompt: `Correct "${request.words}" gramatically:\r\n`
             + "(answer with just the phrase)\r\n",
             max_tokens: 200
         });
@@ -170,7 +170,7 @@ export async function checkPhrase(request) {
     //GPT3 sorts out wether a group of words is an idiom
     const idm_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Is '${request.words}' an idiom?:\r\n`
+        prompt: `Is "${request.words}" an idiom?:\r\n`
         + "(answer with yes/no)\r\n",
         max_tokens: 5
     });
@@ -178,7 +178,7 @@ export async function checkPhrase(request) {
     //GPT3 sorts out wether a group of words is a verb
     const vb_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Is 'to ${request.words}' a valid verb?:\r\n`
+        prompt: `Is "to ${request.words}" a valid verb?:\r\n`
         + "(answer with yes/no)\r\n",
         max_tokens: 20
     });
@@ -206,7 +206,7 @@ export async function populate(request) {
     //GPT3 creates a promise with the 5 most common meanings for your word
     const mean_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `These are the 5 most common meanings for '${request.words}':\r\n`
+        prompt: `These are the 5 most common meanings for "${request.words}":\r\n`
         + "(do not repeat the same phrase twice)\r\n" + "1.",
         max_tokens: 200
     });
@@ -220,21 +220,21 @@ export async function populate(request) {
     //GPT3 creates a response with 10 spanish translations for your word
     const tran_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `These are 10 synonyms for '${request.words}' in Spanish:\r\n`,
+        prompt: `These are 10 synonyms for "${request.words}" in Spanish:\r\n`,
         max_tokens: 100
     });
 
     //GPT3 creates a response with 10 synonyms for your word
     const syn_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `These are 10 synonyms for '${request.words}':\r\n`,
+        prompt: `These are 10 synonyms for "${request.words}":\r\n`,
         max_tokens: 100
     });
 
     //GPT3 creates a response with 3 phrase examples for your word
     const ex_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Write 3 phrases with '${request.words}' and a lenght of 10 words or more:\r\n1.`,
+        prompt: `Write 3 phrases with "${request.words}" and a lenght of 10 words or more:\r\n1.`,
         temperature: 0.9,
         max_tokens: 200
     });
@@ -271,11 +271,11 @@ export async function populate(request) {
 export function cleanArray(array) {
     array.forEach((el, i) => {
         array[i] = el.replace(/\r?\n|\r|^\s+|\s+$|\<([^\>]*)\>/gm, '');
-        if (el.split(/\s/).length < 5) 
+        if (el.split(/\s/gm).length < 5) 
             array[i] = array[i].replace(/\./gm, '');
     });
     array.forEach((el, i) => {
-        if (el === '' || el === '.' || el === ',')
+        if (el === '' || el === "" || el === '.' || el === ',')
             array.splice(i,1);
     });
 }
@@ -285,35 +285,35 @@ export function cleanArray(array) {
 export async function sortTypes(word) {
     const nn_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Is '${word}' used as a noun?\r\n`
+        prompt: `Is "${word}" a noun?\r\n`
         + "(answer with yes/no)\r\n",
         max_tokens: 5
     });
 
     const vb_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Is 'to ${word}' a valid verb?\r\n`
+        prompt: `Is "to ${word}" a valid verb?\r\n`
         + "(answer with yes/no)\r\n",
         max_tokens: 5
     });
 
     const adj_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Is '${word}' used as an adjective?\r\n`
+        prompt: `Is "${word}" an adjective?\r\n`
         + "(answer with yes/no)\r\n",
         max_tokens: 5
     });
 
     const adv_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Is '${word}' used as an adverb?\r\n`
+        prompt: `Is "${word}" an adverb?\r\n`
         + "(answer with yes/no)\r\n",
         max_tokens: 5
     });
 
     const prep_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Is '${word}' used as a preposition?\r\n`
+        prompt: `Is "${word}" a preposition?\r\n`
         + "(answer with yes/no)\r\n",
         max_tokens: 5
     });
@@ -337,4 +337,4 @@ export async function sortTypes(word) {
 
 
 //Execute all the above code
-init("to make do with what one has");
+init("to put up with somebody else's problems");
