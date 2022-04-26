@@ -23,8 +23,8 @@ export async function dictionaryGenerator(req, res) {
 
 //Main function, executes everything else
 export async function init(words) {
-    //Curate the words request
-    words = curateWords(words);
+    //correct the words request
+    words = correctWords(words);
 
     //Parse the request JSON into a request object
     let request = new Request(words);
@@ -71,8 +71,11 @@ export class Response {
   }
 }
 
-export function curateWords(words) {
-    return words.toLowerCase().trim().replace(/^(to )+/gm, '');
+export function correctWords(words) {
+    //The first regex serves to fuse a multiline string into a single line
+    words = words.replace(/(\r?\n)+|\r+|\n+|\t+/gm, " ").trim().toLowerCase();
+    //This second regex is used to eliminate all duplicate consecutive words except one
+    return words.replace(/(\w+)(?=\W\1)+\W?/gm, "");
 }
 
 
@@ -145,27 +148,7 @@ export async function checkWord(word) {
 export async function checkPhrase(request) {  
 
     let isValidPhrase = false;
-
-    //GPT3 checks wether a group of words is gramatically correct
-    const gram_p = await openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `Is the phrase "${request.words}" gramatically correct?:\r\n`
-        + "(answer with yes/no)\r\n",
-        max_tokens: 5
-    });
-    const isGramaticallyCorrect = gram_p.data.choices[0].text.toLowerCase().includes("yes");
-
-    //GPT3 corrects gramatically a group of words
-    if (!isGramaticallyCorrect) {
-        const corr_p = await openai.createCompletion("text-davinci-002", 
-        {
-            prompt: `Correct "${request.words}" gramatically:\r\n`
-            + "(answer with just the phrase)\r\n",
-            max_tokens: 200
-        });
-        request.words = corr_p.data.choices[0].text.toLowerCase()
-        .replace(/\r?\n|\r|^\s+|\s+$|\<([^\>]*)\>|\./gm, '');
-    }
+    //await correctPhrase(request.words);
 
     //GPT3 sorts out wether a group of words is an idiom
     const idm_p = openai.createCompletion("text-davinci-002", 
@@ -180,7 +163,7 @@ export async function checkPhrase(request) {
     {
         prompt: `Is "to ${request.words}" a valid verb?:\r\n`
         + "(answer with yes/no)\r\n",
-        max_tokens: 20
+        max_tokens: 5
     });
 
     //Fills the word type and returns true if the
@@ -208,7 +191,7 @@ export async function populate(request) {
     {
         prompt: `These are the 5 most common meanings for "${request.words}":\r\n`
         + "(do not repeat the same phrase twice)\r\n" + "1.",
-        max_tokens: 200
+        max_tokens: 100
     });
 
     //GPT3 sorts the possible syntactic types for a given word
@@ -221,22 +204,22 @@ export async function populate(request) {
     const tran_p = openai.createCompletion("text-davinci-002", 
     {
         prompt: `These are 10 synonyms for "${request.words}" in Spanish:\r\n`,
-        max_tokens: 100
+        max_tokens: 20
     });
 
     //GPT3 creates a response with 10 synonyms for your word
     const syn_p = openai.createCompletion("text-davinci-002", 
     {
         prompt: `These are 10 synonyms for "${request.words}":\r\n`,
-        max_tokens: 100
+        max_tokens: 20
     });
 
     //GPT3 creates a response with 3 phrase examples for your word
     const ex_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Write 3 phrases with "${request.words}" and a lenght of 10 words or more:\r\n1.`,
+        prompt: `Write 3 phrases with "${request.words}":\r\n1.`,
         temperature: 0.9,
-        max_tokens: 200
+        max_tokens: 80
     });
 
     //This executes all the above promises asynchronously so they complete in parallel
@@ -248,11 +231,11 @@ export async function populate(request) {
         cleanArray(meanings);
         //Convert the translations response text to an array
         const translations_txt = r_tran.data.choices[0].text.toLowerCase();
-        const translations = translations_txt.split(/\d.|,|\r?\n|\\./gm);
+        const translations = translations_txt.split(/\d.|,|\r?\n/gm);
         cleanArray(translations);
         //Convert the synonyms response text to an array
         const synonyms_txt = r_syn.data.choices[0].text.toLowerCase();
-        const synonyms = synonyms_txt.split(/\d.|,|\r?\n|\\./gm);
+        const synonyms = synonyms_txt.split(/\d.|,|\r?\n/gm);
         cleanArray(synonyms);
         //Convert the examples response text to an array
         const examples_txt = r_ex.data.choices[0].text;
@@ -318,9 +301,16 @@ export async function sortTypes(word) {
         max_tokens: 5
     });
 
+    const pron_p = openai.createCompletion("text-davinci-002", 
+    {
+        prompt: `Is "${word}" a pronoun?\r\n`
+        + "(answer with yes/no)\r\n",
+        max_tokens: 5
+    });
+
     let types = [];
-    await Promise.all([nn_p, vb_p, adj_p, adv_p, prep_p])
-    .then(([nn_r, vb_r, adj_r, adv_r, prep_r]) => {
+    await Promise.all([nn_p, vb_p, adj_p, adv_p, prep_p, pron_p])
+    .then(([nn_r, vb_r, adj_r, adv_r, prep_r, pron_r]) => {
         if (nn_r.data.choices[0].text.toLowerCase().includes("yes"))
             types.push("noun");
         if (vb_r.data.choices[0].text.toLowerCase().includes("yes"))
@@ -331,10 +321,37 @@ export async function sortTypes(word) {
             types.push("adverb");
         if (prep_r.data.choices[0].text.toLowerCase().includes("yes"))
             types.push("preposition");
+        if (pron_r.data.choices[0].text.toLowerCase().includes("yes"))
+            types.push("pronoun");
     });
-    return types; 
+    return types;
 }
 
 
+//USELESS METHOD (terrible AI responses)
+/* export async function correctPhrase(words) {
+    //GPT3 checks wether a group of words is gramatically correct
+    const gram_p = await openai.createCompletion("text-davinci-002", 
+    {
+        prompt: `Is the phrase "${words}" gramatically correct?:\r\n`
+        + "(answer with yes/no)\r\n",
+        max_tokens: 5
+    });
+    const isGramaticallyCorrect = gram_p.data.choices[0].text.toLowerCase().includes("yes");
+
+    //GPT3 corrects gramatically a group of words
+    if (!isGramaticallyCorrect) {
+        const corr_p = await openai.createCompletion("text-davinci-002", 
+        {
+            prompt: `Correct "${words}" gramatically:\r\n`,
+            max_tokens: 200
+        });
+        words = corr_p.data.choices[0].text.toLowerCase()
+        .replace(/\r?\n|\r|^\s+|\s+$|\<([^\>]*)\>|\./gm, '');
+    }
+    return words;
+} */
+
+
 //Execute all the above code
-init("to put up with somebody else's problems");
+init("put up with");
