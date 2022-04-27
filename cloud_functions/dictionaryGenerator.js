@@ -189,9 +189,9 @@ export async function populate(request) {
     //GPT3 creates a promise with the 5 most common meanings for your word
     const mean_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `These are the 5 most common meanings for "${request.words}":\r\n`
-        + "(do not repeat the same phrase twice)\r\n" + "1.",
-        max_tokens: 100
+        prompt: `These are the 5 most common definitions for "${request.words}":\r\n`
+        + "(each definition must have more than 3 words)\r\n1. ",
+        max_tokens: 120
     });
 
     //GPT3 sorts the possible syntactic types for a given word
@@ -204,14 +204,14 @@ export async function populate(request) {
     const tran_p = openai.createCompletion("text-davinci-002", 
     {
         prompt: `These are 10 synonyms for "${request.words}" in Spanish:\r\n`,
-        max_tokens: 20
+        max_tokens: 50
     });
 
     //GPT3 creates a response with 10 synonyms for your word
     const syn_p = openai.createCompletion("text-davinci-002", 
     {
         prompt: `These are 10 synonyms for "${request.words}":\r\n`,
-        max_tokens: 20
+        max_tokens: 50
     });
 
     //GPT3 creates a response with 3 phrase examples for your word
@@ -219,7 +219,7 @@ export async function populate(request) {
     {
         prompt: `Write 3 phrases with "${request.words}":\r\n1.`,
         temperature: 0.9,
-        max_tokens: 80
+        max_tokens: 100
     });
 
     //This executes all the above promises asynchronously so they complete in parallel
@@ -227,20 +227,20 @@ export async function populate(request) {
     .then(([r_mean, r_tran, r_syn, r_ex]) => {
         //Convert the meanings response text to an array
         const meanings_txt = `1.${r_mean.data.choices[0].text.toLowerCase()}`;
-        const meanings = meanings_txt.split(/\d./gm);
-        cleanArray(meanings);
+        let meanings = meanings_txt.split(/\d./gm);
+        meanings = cleanArray(meanings);
         //Convert the translations response text to an array
         const translations_txt = r_tran.data.choices[0].text.toLowerCase();
-        const translations = translations_txt.split(/\d.|,|\r?\n/gm);
-        cleanArray(translations);
+        let translations = translations_txt.split(/\d.|\,/gm);
+        translations = cleanArray(translations);
         //Convert the synonyms response text to an array
         const synonyms_txt = r_syn.data.choices[0].text.toLowerCase();
-        const synonyms = synonyms_txt.split(/\d.|,|\r?\n/gm);
-        cleanArray(synonyms);
+        let synonyms = synonyms_txt.split(/\d.|\,/gm);
+        synonyms = cleanArray(synonyms);
         //Convert the examples response text to an array
         const examples_txt = r_ex.data.choices[0].text;
-        const examples = examples_txt.split(/\d./gm);
-        cleanArray(examples);
+        let examples = examples_txt.split(/\d./gm);
+        examples = cleanArray(examples);
         //Store all the data into the request object
         request.meanings.push(...meanings);
         request.translations.push(...translations);
@@ -253,14 +253,18 @@ export async function populate(request) {
 //Uses regex to clean the format the response texts come out
 export function cleanArray(array) {
     array.forEach((el, i) => {
-        array[i] = el.replace(/\r?\n|\r|^\s+|\s+$|\<([^\>]*)\>/gm, '');
-        if (el.split(/\s/gm).length < 5) 
-            array[i] = array[i].replace(/\./gm, '');
+        //Fuse multiline into one line
+        el = el.replace(/(\r?\n)+|\r+|\n+|\t+/gm, " ");
+        //Get rid of strange tags or equal signs
+        el = el.replace(/\<([^\>]*)\>|([\s\S]*)\=/gm, '').trim();
+        //Put the clean element back inside the array 
+        array[i] = el;
     });
     array.forEach((el, i) => {
         if (el === '' || el === "" || el === '.' || el === ',')
             array.splice(i,1);
     });
+    return array;
 }
 
 
@@ -326,31 +330,6 @@ export async function sortTypes(word) {
     });
     return types;
 }
-
-
-//USELESS METHOD (terrible AI responses)
-/* export async function correctPhrase(words) {
-    //GPT3 checks wether a group of words is gramatically correct
-    const gram_p = await openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `Is the phrase "${words}" gramatically correct?:\r\n`
-        + "(answer with yes/no)\r\n",
-        max_tokens: 5
-    });
-    const isGramaticallyCorrect = gram_p.data.choices[0].text.toLowerCase().includes("yes");
-
-    //GPT3 corrects gramatically a group of words
-    if (!isGramaticallyCorrect) {
-        const corr_p = await openai.createCompletion("text-davinci-002", 
-        {
-            prompt: `Correct "${words}" gramatically:\r\n`,
-            max_tokens: 200
-        });
-        words = corr_p.data.choices[0].text.toLowerCase()
-        .replace(/\r?\n|\r|^\s+|\s+$|\<([^\>]*)\>|\./gm, '');
-    }
-    return words;
-} */
 
 
 //Execute all the above code
