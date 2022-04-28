@@ -13,7 +13,7 @@ let openai = new OpenAIApi(configuration);
 
 //Google Cloud functions entry point (not relevant in local execution)
 export async function dictionaryGenerator(req, res) {
-    let words = req.body.words || "";
+    let words = req.body.words || JSON.parse(req.body.data).words || "";
     await init(words).then(doc => {
       console.log(doc);
       res.status(200).send(doc);
@@ -32,12 +32,12 @@ export async function init(words) {
     //Create a personalised response object
     let response = new Response(words);
 
-    //Probes if the words in the request are valid
+    //Checks if the words in the request are valid
     //ones, if so then proceeds to populate them
     response = await errorHandler(request, response);
     if (response.error === "") {
         await populate(request);
-        response.data = request;
+        response.data.contents = request;
     }
 
     //Return a response with either a populated word JSON or an exception
@@ -65,17 +65,26 @@ export class Request {
 //Constructor for the response object
 export class Response {
   constructor(words) {
-    this.data=new Request(words);
-    this.error="";
-    this.errorCode=-1;
+    this.data=new Data(words);
   }
 }
 
+
+export class Data {
+    constructor(words) {
+        this.contents=new Request(words);
+        this.error="";
+        this.errorCode=-1;
+      }
+}
+
+
+//Filters out repeated words and multilines
 export function correctWords(words) {
     //The first regex serves to fuse a multiline string into a single line
     words = words.replace(/(\r?\n)+|\r+|\n+|\t+/gm, " ").trim().toLowerCase();
     //This second regex is used to eliminate all duplicate consecutive words except one
-    return words.replace(/(\w+)(?=\W\1)+\W?/gm, "");
+    return words.replace(/\b(\w+)(?=\W\1\b)+\W?/gm, "");
 }
 
 
@@ -204,14 +213,14 @@ export async function populate(request) {
     const tran_p = openai.createCompletion("text-davinci-002", 
     {
         prompt: `These are 10 synonyms for "${request.words}" in Spanish:\r\n`,
-        max_tokens: 50
+        max_tokens: 60
     });
 
     //GPT3 creates a response with 10 synonyms for your word
     const syn_p = openai.createCompletion("text-davinci-002", 
     {
         prompt: `These are 10 synonyms for "${request.words}":\r\n`,
-        max_tokens: 50
+        max_tokens: 60
     });
 
     //GPT3 creates a response with 3 phrase examples for your word
@@ -219,28 +228,28 @@ export async function populate(request) {
     {
         prompt: `Write 3 phrases with "${request.words}":\r\n1.`,
         temperature: 0.9,
-        max_tokens: 100
+        max_tokens: 120
     });
 
     //This executes all the above promises asynchronously so they complete in parallel
     await Promise.all([mean_p, tran_p, syn_p, ex_p])
-    .then(([r_mean, r_tran, r_syn, r_ex]) => {
+    .then(([mean_r, tran_r, syn_r, ex_r]) => {
         //Convert the meanings response text to an array
-        const meanings_txt = `1.${r_mean.data.choices[0].text.toLowerCase()}`;
-        let meanings = meanings_txt.split(/\d./gm);
-        meanings = cleanArray(meanings);
+        const meanings_txt = mean_r.data.choices[0].text;
+        let meanings = cleanArray(meanings_txt.split(/\d./gm));
         //Convert the translations response text to an array
-        const translations_txt = r_tran.data.choices[0].text.toLowerCase();
-        let translations = translations_txt.split(/\d.|\,/gm);
-        translations = cleanArray(translations);
+        const translations_txt = tran_r.data.choices[0].text;
+        let translations = cleanArray(translations_txt.split(/\d.|\,/gm));
         //Convert the synonyms response text to an array
-        const synonyms_txt = r_syn.data.choices[0].text.toLowerCase();
-        let synonyms = synonyms_txt.split(/\d.|\,/gm);
-        synonyms = cleanArray(synonyms);
+        const synonyms_txt = syn_r.data.choices[0].text;
+        let synonyms = cleanArray(synonyms_txt.split(/\d.|\,/gm));
         //Convert the examples response text to an array
-        const examples_txt = r_ex.data.choices[0].text;
-        let examples = examples_txt.split(/\d./gm);
-        examples = cleanArray(examples);
+        const examples_txt = ex_r.data.choices[0].text;
+        let examples = cleanArray(examples_txt.split(/\d./gm));
+        examples.forEach((example,i) => {
+            example = example.charAt(0).toUpperCase() + `${example.slice(1)}.`;
+            examples[i] = example;
+        });
         //Store all the data into the request object
         request.meanings.push(...meanings);
         request.translations.push(...translations);
@@ -250,15 +259,22 @@ export async function populate(request) {
 }
 
 
-//Uses regex to clean the format the response texts come out
+//Uses regex to clean string elements inside of an array
 export function cleanArray(array) {
+    if (array.length === 1) {
+        // This is a special case which only triggers for synonyms and translations:
+        // If they arrive into one line separated only by spaces, this splits them apart
+        array = array.split(/\s/gm);
+    }
     array.forEach((el, i) => {
         //Fuse multiline into one line
         el = el.replace(/(\r?\n)+|\r+|\n+|\t+/gm, " ");
         //Get rid of strange tags or equal signs
-        el = el.replace(/\<([^\>]*)\>|([\s\S]*)\=/gm, '').trim();
-        //Put the clean element back inside the array 
-        array[i] = el;
+        el = el.replace(/\<([^\>]*)\>|([\s\S]*)\=/gm, '');
+        //Get rid of some non-word characters
+        el = el.replace(/[^\w\s\'\,(áéíóú)]|\d/gm, '');
+        //Put the clean element back inside the array
+        array[i] = el.trim().toLowerCase();
     });
     array.forEach((el, i) => {
         if (el === '' || el === "" || el === '.' || el === ',')
@@ -333,4 +349,4 @@ export async function sortTypes(word) {
 
 
 //Execute all the above code
-init("put up with");
+init("sift through");
