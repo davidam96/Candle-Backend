@@ -35,7 +35,7 @@ export async function init(words) {
     //Checks if the words in the request are valid
     //ones, if so then proceeds to populate them
     response = await errorHandler(request, response);
-    if (response.error === "") {
+    if (response.data.error === "") {
         await populate(request);
         response.data.contents = request;
     }
@@ -92,14 +92,14 @@ export function correctWords(words) {
 export async function errorHandler(request, response) {
     const charCount = request.words.length;
     if (request.words === "") {
-        response.error = "Empty request.";
-        response.errorCode = 0;
+        response.data.error = "Empty request.";
+        response.data.errorCode = 0;
     }
     else if (request.wordCount === 1 && charCount <= 20) {
         const isValidWord = await checkWord(request.words);
         if (!isValidWord) {
-            response.error = "Invalid word.";
-            response.errorCode = 1;
+            response.data.error = "Invalid word.";
+            response.data.errorCode = 1;
         }
     }
     else if (request.wordCount > 1 && request.wordCount < 10 && charCount <= 100) {
@@ -114,8 +114,8 @@ export async function errorHandler(request, response) {
         .then(results => {
           results.find(result => {
             if (!result) {
-              response.error = "The phrase contains an invalid word."
-              response.errorCode = 2;
+              response.data.error = "The phrase contains an invalid word."
+              response.data.errorCode = 2;
               allWordsAreValid = false;
               return true;
             }
@@ -127,14 +127,14 @@ export async function errorHandler(request, response) {
         if (allWordsAreValid) {
             const isValidPhrase = await checkPhrase(request);
             if (!isValidPhrase) {
-                response.error = "Invalid phrase. It's neither an idiom nor a verb";
-                response.errorCode = 3;
+                response.data.error = "Invalid phrase. It's neither an idiom nor a verb";
+                response.data.errorCode = 3;
             }
         }
     }
     else {
-        response.error = "Invalid request format.";
-        response.errorCode = 4;
+        response.data.error = "Invalid request format.";
+        response.data.errorCode = 4;
     }
     return response;
 }
