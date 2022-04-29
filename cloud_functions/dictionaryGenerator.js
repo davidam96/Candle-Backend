@@ -52,12 +52,12 @@ export class Request {
   constructor(words) {
     this.words=words;
     this.wordCount=words.split(/\s/gm).length;
-    this.combinations=[];
     this.types=[];
     this.meanings=[];
     this.translations=[];
     this.synonyms=[];
     this.examples=[];
+    this.combinations=[];
   }
 }
 
