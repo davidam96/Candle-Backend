@@ -348,5 +348,20 @@ export async function sortTypes(word) {
 }
 
 
+//POR HACER
+//Implementar esta funcion para que se añadan las combinaciones al documento de la palabra
+export function createCombinations(text) {
+    let words = text.split(/\s/gm);
+    let combinations = [];
+    words.forEach((word, i) => {
+        words.forEach((copy, j) => {
+            if (i<j)
+                combinations.push(`${word} ${copy}`);
+        });
+    });
+    return combinations;
+}
+
+
 //Execute all the above code
-init("sift through");
+createCombinations("sift through the mud with one's car ahead or maybe");
