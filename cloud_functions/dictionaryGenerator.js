@@ -374,4 +374,4 @@ export function makeCombinations(text) {
 
 
 //Execute all the above code
-makeCombinations("sift through with some horses around your uncle's hoe a b c d");
+makeCombinations("you can lead a horse to water but you can't make him drink");
