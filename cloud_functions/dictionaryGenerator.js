@@ -95,14 +95,14 @@ export async function errorHandler(request, response) {
         response.data.error = "Empty request.";
         response.data.errorCode = 0;
     }
-    else if (request.wordCount === 1 && charCount <= 20) {
+    else if (request.wordCount === 1 && charCount <= 30) {
         const isValidWord = await checkWord(request.words);
         if (!isValidWord) {
             response.data.error = "Invalid word.";
             response.data.errorCode = 1;
         }
     }
-    else if (request.wordCount > 1 && request.wordCount < 10 && charCount <= 100) {
+    else if (request.wordCount > 1 && request.wordCount <= 13 && charCount <= 130) {
         //First we check if each given word in the phrase is valid
         let allWordsAreValid = true;
         const words = request.words.split(/\s/gm);
@@ -132,9 +132,17 @@ export async function errorHandler(request, response) {
             }
         }
     }
+    else if (request.wordCount > 13) {
+        response.data.error = "Limit of 13 words exceeded";
+        response.data.errorCode = 4;
+    }
+    else if (charCount > 130) {
+        response.data.error = "Limit of 130 characters exceeded";
+        response.data.errorCode = 5;
+    }
     else {
         response.data.error = "Invalid request format.";
-        response.data.errorCode = 4;
+        response.data.errorCode = 6;
     }
     return response;
 }
@@ -350,7 +358,7 @@ export async function sortTypes(word) {
 
 //POR HACER
 //Implementar esta funcion para que se añadan las combinaciones al documento de la palabra
-export function createCombinations(text) {
+export function makeCombinations(text) {
     let words = text.split(/\s/gm);
     let combinations = [];
     words.forEach((word, i) => {
@@ -359,9 +367,11 @@ export function createCombinations(text) {
                 combinations.push(`${word} ${copy}`);
         });
     });
+    console.log(combinations);
+    console.log(combinations.length);
     return combinations;
 }
 
 
 //Execute all the above code
-createCombinations("sift through the mud with one's car ahead or maybe");
+makeCombinations("sift through with some horses around your uncle's hoe a b c d");
