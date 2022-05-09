@@ -1,18 +1,24 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
 import Query = FirebaseFirestore.Query
+import QuerySnapshot = FirebaseFirestore.QuerySnapshot
 import DocumentData = FirebaseFirestore.DocumentData
 
-//Boot up Candle's firebase app
+
+//Boot up Candle's firebase app and create
+//the database object to work with firestore
 const firebase = admin.initializeApp()
-//Create the database object to work with firestore
 const db = firebase.firestore()
 
 
 export const findWords = functions.https.onRequest(async (request, response) => {
+
+  //Parsing the request into an object
+  let words = request.body.words || JSON.parse(request.body.data).words || "";
+
   //First of all, we create the subcombinations of 2 words
   //for the request text that has been sent from the client
-  let combinations = makeCombinations(request.body.words)
+  let combinations = makeCombinations(words)
 
   //Firestore's arrayContainsAny() method only allows querying
   //for 10 elements each time it is called, so we have to divide
@@ -22,20 +28,74 @@ export const findWords = functions.https.onRequest(async (request, response) => 
   //Then, we call as much queries as necessary to return
   //all the documents that match with what's in the database
   let documents: Array<DocumentData> = []
-  let query: Query
-  groups.forEach(async (group: Array<string>) => {
-    query = db.collection("words").where('combinations', 'array-contains-any', group);
-    if (documents.length > 0) {
-      //This method minimises the number of duplicate
-      //documents returned by subsequent queries
-      query = optimiseQuery(query, documents)
+  let firstBatch: Array<Promise<QuerySnapshot<DocumentData>>> = []
+  let secondBatch: Array<Promise<QuerySnapshot<DocumentData>>> = []
+
+  //First batch of queries:
+  //(first 1/3, unoptimised)
+  groups.forEach(async(group: Array<string>, i: number) => {
+    if (i < Math.floor(groups.length/3)) {
+      let query = db.collection("words").where('combinations', 'array-contains-any', group);
+      firstBatch.push(query.get())
     }
-    documents.push(...(await query.get()).docs)
   })
-  if (documents.length > 1) {
+
+  await Promise.all(firstBatch)
+  .then(async(snapshots) => {
+    //We pull out the documents from the query snapshots
+    snapshots.forEach(snapshot => {
+      documents.push(snapshot.docs)
+    })
     //This line of code erases any duplicate documents
     documents = [...new Set(documents)]
+  })
+
+  //Second batch of queries:
+  //(last 2/3, optimised hopefully)
+  groups.forEach(async(group: Array<string>, i: number) => {
+    if (i >= Math.floor(groups.length/3) ) {
+      let query = db.collection("words").where('combinations', 'array-contains-any', group);
+      //We optimise the subsequent queries to return the least
+      //amount of duplicate data possible and in turn save more money
+      if (documents.length > 0) {
+        query = optimiseQuery(query, documents)
+      }
+      secondBatch.push(query.get())
+    }
+  })
+
+  await Promise.all(secondBatch)
+  .then(snapshots => {
+    snapshots.forEach(snapshot => {
+      documents.push(snapshot.docs)
+    })
+    documents = [...new Set(documents)]
+  })
+
+  // ---------- TRANSACTION (PUT IT IN ITS OWN SEPARATE FUNCTION) ----------
+
+  //If the query didn't find any word documents,
+  //then we call dictionaryGenerator() to make one
+  if (documents.length === 0) {
+    //First we call the function dictionaryGenerator() from GCF
+    await callCloudFunction("dictionaryGenerator", words)
+    .then(response => {
+      let document = JSON.parse(response)
+      if (document !== null && document.errorCode === -1) {
+        //After having created a document,
+        //we store it in the database
+        db.collection("dictionary").add(document)
+        .then(docRef => {
+          console.log("Document written with ID: ", docRef.id);
+        })
+        .catch((error) => {
+          console.error("Error adding document: ", error);
+        })
+      }
+    })
   }
+
+  // ---------- TRANSACTION (PUT IT IN ITS OWN SEPARATE FUNCTION) ----------
 
   //Finally we return the response to the client
   response.status(200).send(documents);
@@ -65,7 +125,7 @@ export function divideArray(array: Array<any>, itemsPerChunk: number) {
   }, [])
 }
 
-
+//This method minimises the number of duplicate documents returned by subsequent queries
 export function optimiseQuery(query: Query<DocumentData>, documents: Array<DocumentData>): Query {
   let words: Array<string> = []
   documents.forEach((doc, i) => {
@@ -75,6 +135,19 @@ export function optimiseQuery(query: Query<DocumentData>, documents: Array<Docum
       words.push(doc.words)
   })
   return query.where('words', 'not-in', words)
+}
+
+export async function callCloudFunction(name: string, data: string): Promise<string> {
+  let url = `https://europe-west1-candle-9cfbb.cloudfunctions.net/${name}`
+  let response = await fetch(url, {
+    method: 'POST',
+    headers: {
+          'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  })
+  let contents = await response.json()
+  return contents
 }
 
 
