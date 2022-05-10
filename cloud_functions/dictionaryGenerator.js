@@ -75,7 +75,7 @@ export class Data {
         this.contents=new WordDocument(words);
         this.error="";
         this.errorCode=-1;
-        this.isPerfectMatch=false
+        this.exactMatch=false;
     }
 }
 

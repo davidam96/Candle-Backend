@@ -25,7 +25,7 @@ export const findWords = functions.https.onRequest(async (req, res) => {
   let perfectQuery = await db.collection("words").where('words', '==', words).get()
 
   if (perfectQuery.docs.length > 0) {
-    docs.data.isPerfectMatch = true
+    docs.data.exactMatch = true
     documents.push(perfectQuery.docs)
   }
   else {
@@ -220,12 +220,12 @@ export class Data {
   contents: any
   error: string
   errorCode: number
-  isPerfectMatch: Boolean
+  exactMatch: Boolean
   constructor() {
       this.contents=null;
       this.error="";
       this.errorCode=-1;
-      this.isPerfectMatch=false
+      this.exactMatch=false
   }
 }
 
