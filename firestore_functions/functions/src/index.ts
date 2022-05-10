@@ -11,13 +11,58 @@ const firebase = admin.initializeApp()
 const db = firebase.firestore()
 
 
-export const findWords = functions.https.onRequest(async (request, response) => {
+export const findWords = functions.https.onRequest(async (req, res) => {
 
   //Parsing the request into an object
-  let words = request.body.words || JSON.parse(request.body.data).words || "";
+  let words: string = req.body.words || JSON.parse(req.body.data).words || "";
 
+  //Creating a personalised response object and a documents array
+  let docs = new Response()
+  let documents: Array<DocumentData> = []
+
+  //If the search result matches exactly the result, we send
+  //a flag back to the client to implement a new functionality
+  let perfectQuery = await db.collection("words").where('words', '==', words).get()
+
+  if (perfectQuery.docs.length > 0) {
+    docs.data.isPerfectMatch = true
+    documents.push(perfectQuery.docs)
+  }
+  else {
+    documents = await searchAlgorithm(words)
+  }
+
+  //If the query didn't find any word documents,
+  //then we call dictionaryGenerator() to make one
+  if (documents.length === 0) {
+    docs = await callCloudFunction("dictionaryGenerator", words)
+    let document: DocumentData
+    //If there is an error when creating the document, we try a second time
+    if (docs.data.errorCode !== -1) {
+        docs = await callCloudFunction("dictionaryGenerator", words)
+    }
+    //If the document is finally created succesfully, then we proceed
+    if (docs.data.errorCode === -1) {
+      document = docs.data.contents
+      //After having created a document, we store it in the database
+      await db.collection("dictionary").add(document)
+      .catch((error) => {
+        docs.data.error = `ERROR CREATING DOCUMENT IN FIRESTORE: ${error}`
+        docs.data.errorCode = 8
+      })
+      documents.push(document)
+    }
+  }
+
+  //Finally we return the response to the client
+  docs.data.contents = documents
+  res.status(200).send(docs);
+})
+
+
+export async function searchAlgorithm(words: string): Promise<Array<DocumentData>> {
   //First of all, we create the subcombinations of 2 words
-  //for the request text that has been sent from the client
+  //for the req text that has been sent from the client
   let combinations = makeCombinations(words)
 
   //Firestore's arrayContainsAny() method only allows querying
@@ -35,7 +80,7 @@ export const findWords = functions.https.onRequest(async (request, response) => 
   //(first 1/3, unoptimised)
   groups.forEach(async(group: Array<string>, i: number) => {
     if (i < Math.floor(groups.length/3)) {
-      let query = db.collection("words").where('combinations', 'array-contains-any', group);
+      let query = db.collection("words").where('combinations', 'array-contains-any', group)
       firstBatch.push(query.get())
     }
   })
@@ -72,38 +117,7 @@ export const findWords = functions.https.onRequest(async (request, response) => 
     documents = [...new Set(documents)]
   })
 
-  // ---------- TRANSACTION (PUT IT IN ITS OWN SEPARATE FUNCTION) ----------
-
-  //If the query didn't find any word documents,
-  //then we call dictionaryGenerator() to make one
-  if (documents.length === 0) {
-    let document: DocumentData
-    document = await callCloudFunction("dictionaryGenerator", words)
-    if (!document.callError && document.errorCode === -1) {
-        document = await callCloudFunction("dictionaryGenerator", words)
-    }
-    else if (!document.callError && document.errorCode !== -1) {
-      //After having created a document,
-      //we store it in the database
-      db.collection("dictionary").add(document)
-      .then(docRef => {
-        console.log("Document written with ID: ", docRef.id);
-      })
-      .catch((error) => {
-        console.error("Error adding document: ", error);
-      })
-    }
-    documents.push(document)
-  }
-
-  // ---------- TRANSACTION (PUT IT IN ITS OWN SEPARATE FUNCTION) ----------
-
-  //Finally we return the response to the client
-  response.status(200).send(documents);
-})
-
-export async function retry(document: any): Promise<any> {
-
+  return documents
 }
 
 
@@ -130,6 +144,7 @@ export function divideArray(array: Array<any>, itemsPerChunk: number) {
   }, [])
 }
 
+
 //This method minimises the number of duplicate documents returned by subsequent queries
 export function optimiseQuery(query: Query<DocumentData>, documents: Array<DocumentData>): Query {
   let words: Array<string> = []
@@ -142,24 +157,76 @@ export function optimiseQuery(query: Query<DocumentData>, documents: Array<Docum
   return query.where('words', 'not-in', words)
 }
 
-export async function callCloudFunction(name: string, data: string): Promise<any> {
-  let contents = {}
+
+export async function callCloudFunction(name: string, payload: string): Promise<any> {
+  let response = new Response()
+  response.data.contents = new WordDocument(payload)
   let url = `https://europe-west1-candle-9cfbb.cloudfunctions.net/${name}`
   await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(data),
+    body: JSON.stringify(payload),
   })
-  .then(async(response) => {
-    contents = JSON.parse(await response.json())
+  .then(async(result) => {
+    response = JSON.parse(await result.json()).data
   })
   .catch((error) => {
-    contents = JSON.parse(`{"callError": ${error}}`)
-    console.error("ERROR CALLING CLOUD FUNCTION: ", error)
+    response.data.error = `ERROR CALLING CLOUD FUNCTION: ${error}`
+    response.data.errorCode = 7
   })
-  return contents
+  return response
+}
+
+
+//Constructor for the document object
+export class WordDocument {
+
+  //Fields
+  words: string
+  wordCount: number
+  types: Array<string>
+  meanings: Array<string>
+  synonyms: Array<string>
+  translations: Array<string>
+  examples: Array<string>
+  combinations: Array<string>
+
+  //Constructor
+  constructor(words: string) {
+      this.words=words;
+      this.wordCount=words.split(/\s/gm).length;
+      this.types=[];
+      this.meanings=[];
+      this.synonyms=[];
+      this.translations=[];
+      this.examples=[];
+      this.combinations=[];
+  }
+}
+
+
+//Constructor for the response object
+export class Response {
+  data: Data
+  constructor() {
+      this.data=new Data();
+  }
+}
+
+
+export class Data {
+  contents: any
+  error: string
+  errorCode: number
+  isPerfectMatch: Boolean
+  constructor() {
+      this.contents=null;
+      this.error="";
+      this.errorCode=-1;
+      this.isPerfectMatch=false
+  }
 }
 
 

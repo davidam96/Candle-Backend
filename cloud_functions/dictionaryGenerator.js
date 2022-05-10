@@ -23,21 +23,21 @@ export async function dictionaryGenerator(req, res) {
 
 //Main function, executes everything else
 export async function init(words) {
-    //correct the words request
+    //Correct the words in the document
     words = correctWords(words);
 
-    //Parse the request JSON into a request object
-    let request = new Request(words);
+    //Parse the request JSON into a document object
+    let document = new WordDocument(words);
 
     //Create a personalised response object
     let response = new Response(words);
 
     //Checks if the words in the request are valid
     //ones, if so then proceeds to populate them
-    response = await errorHandler(request, response);
+    response = await errorHandler(document, response);
     if (response.data.error === "") {
-        await populate(request);
-        response.data.contents = request;
+        await populate(document);
+        response.data.contents = document;
     }
 
     //Return a response with either a populated word JSON or an exception
@@ -47,35 +47,36 @@ export async function init(words) {
 }
 
 
-//Constructor for the request object
-export class Request {
-  constructor(words) {
-    this.words=words;
-    this.wordCount=words.split(/\s/gm).length;
-    this.types=[];
-    this.meanings=[];
-    this.translations=[];
-    this.synonyms=[];
-    this.examples=[];
-    this.combinations=[];
-  }
+//Constructor for the document object
+export class WordDocument {
+    constructor(words) {
+        this.words=words;
+        this.wordCount=words.split(/\s/gm).length;
+        this.types=[];
+        this.meanings=[];
+        this.synonyms=[];
+        this.translations=[];
+        this.examples=[];
+        this.combinations=[];
+    }
 }
 
 
 //Constructor for the response object
 export class Response {
-  constructor(words) {
-    this.data=new Data(words);
-  }
+    constructor(words) {
+        this.data=new Data(words);
+    }
 }
 
 
 export class Data {
     constructor(words) {
-        this.contents=new Request(words);
+        this.contents=new WordDocument(words);
         this.error="";
         this.errorCode=-1;
-      }
+        this.isPerfectMatch=false
+    }
 }
 
 
@@ -89,23 +90,23 @@ export function correctWords(words) {
 
 
 //Checks wether a word or a phrase is a valid one
-export async function errorHandler(request, response) {
-    const charCount = request.words.length;
-    if (request.words === "") {
+export async function errorHandler(document, response) {
+    const charCount = document.words.length;
+    if (document.words === "") {
         response.data.error = "Empty request.";
         response.data.errorCode = 0;
     }
-    else if (request.wordCount === 1 && charCount <= 30) {
-        const isValidWord = await checkWord(request.words);
+    else if (document.wordCount === 1 && charCount <= 30) {
+        const isValidWord = await checkWord(document.words);
         if (!isValidWord) {
             response.data.error = "Invalid word.";
             response.data.errorCode = 1;
         }
     }
-    else if (request.wordCount > 1 && request.wordCount <= 13 && charCount <= 130) {
+    else if (document.wordCount > 1 && document.wordCount <= 13 && charCount <= 130) {
         //First we check if each given word in the phrase is valid
         let allWordsAreValid = true;
-        const words = request.words.split(/\s/gm);
+        const words = document.words.split(/\s/gm);
         const promises = [];
         words.forEach(word => {
             promises.push(checkWord(word.replace(/'([\s\S]*)$/gm, '')));
@@ -125,14 +126,14 @@ export async function errorHandler(request, response) {
         //Then, if all words in the phrase are valid, we check and
         //correct the phrase gramatically and assign it its type.
         if (allWordsAreValid) {
-            const isValidPhrase = await checkPhrase(request);
+            const isValidPhrase = await checkPhrase(document);
             if (!isValidPhrase) {
                 response.data.error = "Invalid phrase. It's neither an idiom nor a verb";
                 response.data.errorCode = 3;
             }
         }
     }
-    else if (request.wordCount > 13) {
+    else if (document.wordCount > 13) {
         response.data.error = "Limit of 13 words exceeded";
         response.data.errorCode = 4;
     }
@@ -162,15 +163,14 @@ export async function checkWord(word) {
 
 //Checks if a given group of words are a valid idiom or verb. In case
 //they are not, it corrects it and tries with the correction instead
-export async function checkPhrase(request) {  
+export async function checkPhrase(document) {  
 
     let isValidPhrase = false;
-    //await correctPhrase(request.words);
 
     //GPT3 sorts out wether a group of words is an idiom
     const idm_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Is "${request.words}" an idiom?:\r\n`
+        prompt: `Is "${document.words}" an idiom?:\r\n`
         + "(answer with yes/no)\r\n",
         max_tokens: 5
     });
@@ -178,7 +178,7 @@ export async function checkPhrase(request) {
     //GPT3 sorts out wether a group of words is a verb
     const vb_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Is "to ${request.words}" a valid verb?:\r\n`
+        prompt: `Is "to ${document.words}" a valid verb?:\r\n`
         + "(answer with yes/no)\r\n",
         max_tokens: 5
     });
@@ -190,9 +190,9 @@ export async function checkPhrase(request) {
         const isIdiom = idm_r.data.choices[0].text.toLowerCase().includes("yes");
         const isVerb = vb_r.data.choices[0].text.toLowerCase().includes("yes");
         if (isIdiom)
-            request.types.push("idiom");
+            document.types.push("idiom");
         if (isVerb) 
-            request.types.push("verb");
+            document.types.push("verb");
         if (isIdiom || isVerb)
             isValidPhrase = true;
     });
@@ -200,57 +200,57 @@ export async function checkPhrase(request) {
 }
 
 
-//Fills the request object with meanings for the word or phrase
-export async function populate(request) {
+//Fills the document object with meanings for the word or phrase
+export async function populate(document) {
 
     //GPT3 creates a promise with the 5 most common meanings for your word
     const mean_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `These are the 5 most common definitions for "${request.words}":\r\n`
+        prompt: `These are the 5 most common definitions for "${document.words}":\r\n`
         + "(each definition must have more than 3 words)\r\n1. ",
         max_tokens: 200
     });
 
     //GPT3 sorts the possible syntactic types for a given word
-    if (request.words.split(/\s/gm).length === 1) {
-        const types = await sortTypes(request.words);
-        request.types.push(...types);
+    if (document.words.split(/\s/gm).length === 1) {
+        const types = await sortTypes(document.words);
+        document.types.push(...types);
     }
-
-    //GPT3 creates a response with 10 spanish translations for your word
-    const tran_p = openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `These are 10 synonyms for "${request.words}" in Spanish:\r\n`,
-        max_tokens: 200
-    });
 
     //GPT3 creates a response with 10 synonyms for your word
     const syn_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `These are 10 synonyms for "${request.words}":\r\n`,
+        prompt: `These are 10 synonyms for "${document.words}":\r\n`,
+        max_tokens: 200
+    });
+
+    //GPT3 creates a response with 10 spanish translations for your word
+    const tran_p = openai.createCompletion("text-davinci-002", 
+    {
+        prompt: `These are 10 synonyms for "${document.words}" in Spanish:\r\n`,
         max_tokens: 200
     });
 
     //GPT3 creates a response with 3 phrase examples for your word
     const ex_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Write 3 phrases with "${request.words}":\r\n1.`,
+        prompt: `Write 3 phrases with "${document.words}":\r\n1.`,
         temperature: 0.9,
         max_tokens: 200
     });
 
     //This executes all the above promises asynchronously so they complete in parallel
-    await Promise.all([mean_p, tran_p, syn_p, ex_p])
-    .then(([mean_r, tran_r, syn_r, ex_r]) => {
+    await Promise.all([mean_p, syn_p, tran_p, ex_p])
+    .then(([mean_r, syn_r, tran_r, ex_r]) => {
         //Convert the meanings response text to an array
         const meanings_txt = mean_r.data.choices[0].text;
         let meanings = cleanArray(meanings_txt.split(/\d./gm));
-        //Convert the translations response text to an array
-        const translations_txt = tran_r.data.choices[0].text;
-        let translations = cleanArray(translations_txt.split(/\d.|\,/gm));
         //Convert the synonyms response text to an array
         const synonyms_txt = syn_r.data.choices[0].text;
         let synonyms = cleanArray(synonyms_txt.split(/\d.|\,/gm));
+        //Convert the translations response text to an array
+        const translations_txt = tran_r.data.choices[0].text;
+        let translations = cleanArray(translations_txt.split(/\d.|\,/gm));
         //Convert the examples response text to an array
         const examples_txt = ex_r.data.choices[0].text;
         let examples = cleanArray(examples_txt.split(/\d./gm));
@@ -258,12 +258,12 @@ export async function populate(request) {
             example = example.charAt(0).toUpperCase() + `${example.slice(1)}.`;
             examples[i] = example;
         });
-        //Store all the data into the request object
-        request.meanings.push(...meanings);
-        request.translations.push(...translations);
-        request.synonyms.push(...synonyms);
-        request.examples.push(...examples);
-        request.combinations = makeCombinations(request.words);
+        //Store all the data into the document object
+        document.meanings.push(...meanings);
+        document.synonyms.push(...synonyms);
+        document.translations.push(...translations);
+        document.examples.push(...examples);
+        document.combinations = makeCombinations(document.words);
     });
 }
 
@@ -368,11 +368,10 @@ export function makeCombinations(text) {
                 combinations.push(`${word} ${copy}`);
         });
     });
-    console.log(combinations);
-    console.log(combinations.length);
     return combinations;
 }
 
 
 //Execute all the above code
-makeCombinations("you can lead a horse to water but you can't make him drink");
+init("put up with")
+
