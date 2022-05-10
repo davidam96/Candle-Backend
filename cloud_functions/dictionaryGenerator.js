@@ -208,7 +208,7 @@ export async function populate(request) {
     {
         prompt: `These are the 5 most common definitions for "${request.words}":\r\n`
         + "(each definition must have more than 3 words)\r\n1. ",
-        max_tokens: 120
+        max_tokens: 200
     });
 
     //GPT3 sorts the possible syntactic types for a given word
@@ -221,14 +221,14 @@ export async function populate(request) {
     const tran_p = openai.createCompletion("text-davinci-002", 
     {
         prompt: `These are 10 synonyms for "${request.words}" in Spanish:\r\n`,
-        max_tokens: 60
+        max_tokens: 200
     });
 
     //GPT3 creates a response with 10 synonyms for your word
     const syn_p = openai.createCompletion("text-davinci-002", 
     {
         prompt: `These are 10 synonyms for "${request.words}":\r\n`,
-        max_tokens: 60
+        max_tokens: 200
     });
 
     //GPT3 creates a response with 3 phrase examples for your word
@@ -236,7 +236,7 @@ export async function populate(request) {
     {
         prompt: `Write 3 phrases with "${request.words}":\r\n1.`,
         temperature: 0.9,
-        max_tokens: 120
+        max_tokens: 200
     });
 
     //This executes all the above promises asynchronously so they complete in parallel
@@ -263,6 +263,7 @@ export async function populate(request) {
         request.translations.push(...translations);
         request.synonyms.push(...synonyms);
         request.examples.push(...examples);
+        request.combinations = makeCombinations(request.words);
     });
 }
 
@@ -356,14 +357,14 @@ export async function sortTypes(word) {
 }
 
 
-//POR HACER
-//Implementar esta funcion para que se añadan las combinaciones al documento de la palabra
+//Makes all the possible combinations of 2 words within a
+//given text, it is used for querying words in firestore
 export function makeCombinations(text) {
     let words = text.split(/\s/gm);
     let combinations = [];
     words.forEach((word, i) => {
         words.forEach((copy, j) => {
-            if (i<j)
+            if (i<j && i<5)
                 combinations.push(`${word} ${copy}`);
         });
     });

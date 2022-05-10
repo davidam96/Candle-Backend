@@ -77,22 +77,23 @@ export const findWords = functions.https.onRequest(async (request, response) => 
   //If the query didn't find any word documents,
   //then we call dictionaryGenerator() to make one
   if (documents.length === 0) {
-    //First we call the function dictionaryGenerator() from GCF
-    await callCloudFunction("dictionaryGenerator", words)
-    .then(response => {
-      let document = JSON.parse(response)
-      if (document !== null && document.errorCode === -1) {
-        //After having created a document,
-        //we store it in the database
-        db.collection("dictionary").add(document)
-        .then(docRef => {
-          console.log("Document written with ID: ", docRef.id);
-        })
-        .catch((error) => {
-          console.error("Error adding document: ", error);
-        })
-      }
-    })
+    let document: DocumentData
+    document = await callCloudFunction("dictionaryGenerator", words)
+    if (!document.callError && document.errorCode === -1) {
+        document = await callCloudFunction("dictionaryGenerator", words)
+    }
+    else if (!document.callError && document.errorCode !== -1) {
+      //After having created a document,
+      //we store it in the database
+      db.collection("dictionary").add(document)
+      .then(docRef => {
+        console.log("Document written with ID: ", docRef.id);
+      })
+      .catch((error) => {
+        console.error("Error adding document: ", error);
+      })
+    }
+    documents.push(document)
   }
 
   // ---------- TRANSACTION (PUT IT IN ITS OWN SEPARATE FUNCTION) ----------
@@ -100,6 +101,10 @@ export const findWords = functions.https.onRequest(async (request, response) => 
   //Finally we return the response to the client
   response.status(200).send(documents);
 })
+
+export async function retry(document: any): Promise<any> {
+
+}
 
 
 export function makeCombinations(text: string) {
@@ -137,16 +142,23 @@ export function optimiseQuery(query: Query<DocumentData>, documents: Array<Docum
   return query.where('words', 'not-in', words)
 }
 
-export async function callCloudFunction(name: string, data: string): Promise<string> {
+export async function callCloudFunction(name: string, data: string): Promise<any> {
+  let contents = {}
   let url = `https://europe-west1-candle-9cfbb.cloudfunctions.net/${name}`
-  let response = await fetch(url, {
+  await fetch(url, {
     method: 'POST',
     headers: {
-          'Content-Type': 'application/json',
+      'Content-Type': 'application/json',
     },
     body: JSON.stringify(data),
   })
-  let contents = await response.json()
+  .then(async(response) => {
+    contents = JSON.parse(await response.json())
+  })
+  .catch((error) => {
+    contents = JSON.parse(`{"callError": ${error}}`)
+    console.error("ERROR CALLING CLOUD FUNCTION: ", error)
+  })
   return contents
 }
 
