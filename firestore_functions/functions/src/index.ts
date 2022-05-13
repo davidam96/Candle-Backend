@@ -11,7 +11,8 @@ const firebase = admin.initializeApp();
 const db = firebase.firestore();
 
 
-export const findWords = functions.https.onRequest(async (req, res) => {
+export const findWords = functions.region("europe-west1")
+    .https.onRequest(async (req, res) => {
   //  Parsing the request into an object
   const words: string = req.body.words || JSON.parse(req.body.data).words || "";
 
@@ -61,7 +62,8 @@ export const findWords = functions.https.onRequest(async (req, res) => {
 
 //  Self-made algorithm to search efficiently for word results
 //  in a dictionary that match with the given word request
-export async function searchAlgorithm(words: string): Promise<Array<DocumentData>> {
+export async function searchAlgorithm(words: string)
+: Promise<Array<DocumentData>> {
   //  First of all, we create the subcombinations of 2 words
   //  for the req text that has been sent from the client
   const combinations = makeCombinations(words);
@@ -152,8 +154,9 @@ export function divideArray(array: Array<any>, itemsPerChunk: number) {
 
 
 //  This method minimises the number of duplicate
-// documents returned by subsequent queries
-export function optimiseQuery(query: Query<DocumentData>, documents: Array<DocumentData>): Query {
+//  documents returned by subsequent queries
+export function optimiseQuery(query: Query<DocumentData>,
+    documents: Array<DocumentData>): Query {
   const words: Array<string> = [];
   documents.forEach((doc, i) => {
     //  Firestore imposes a limit of 10 elements maximum to
@@ -167,7 +170,8 @@ export function optimiseQuery(query: Query<DocumentData>, documents: Array<Docum
 
 
 //  Calls any of your cloud functions and returns its response
-export async function callCloudFunction(name: string, payload: string): Promise<any> {
+export async function callCloudFunction(name: string, payload: string)
+: Promise<any> {
   let response = new Response();
   response.data.contents = new WordDocument(payload);
   const url = `https://europe-west1-candle-9cfbb.cloudfunctions.net/${name}`;
