@@ -1,5 +1,6 @@
 import * as functions from "firebase-functions";
 import * as admin from "firebase-admin";
+import fetch from "node-fetch";
 import Query = FirebaseFirestore.Query
 import QuerySnapshot = FirebaseFirestore.QuerySnapshot
 import DocumentData = FirebaseFirestore.DocumentData
@@ -11,53 +12,59 @@ const firebase = admin.initializeApp();
 const db = firebase.firestore();
 
 
-export const findWords = functions.region("europe-west1")
+export const searchDictionary = functions.region("europe-west1")
     .https.onRequest(async (req, res) => {
-  //  Parsing the request into an object
-  const words: string = req.body.words || JSON.parse(req.body.data).words || "";
+      //  Parsing the request into an object
+      const words: string = req.body.words ||
+      JSON.parse(req.body.data).words || "";
 
-  //  Creating a personalised response object and a documents array
-  let docs = new Response();
-  let documents: Array<DocumentData> = [];
+      //  Creating a personalised response object and a documents array
+      let response = new Response();
+      let documents: Array<DocumentData> = [];
 
-  //  If the search result matches exactly the result, we send
-  //  a flag back to the client to implement a new functionality
-  const perfectQuery = await db.collection("words")
-      .where("words", "==", words).get();
+      //  If the search result matches exactly the result, we send
+      //  a flag back to the client to implement a new functionality
+      const perfectQuery = await db.collection("words")
+          .where("words", "==", words).get();
 
-  if (perfectQuery.docs.length > 0) {
-    docs.data.exactMatch = true;
-    documents.push(perfectQuery.docs);
-  } else {
-    documents = await searchAlgorithm(words);
-  }
+      if (perfectQuery.docs.length > 0) {
+        response.data.exactMatch = true;
+        documents.push(perfectQuery.docs);
+      } else {
+        documents = await searchAlgorithm(words);
+      }
 
-  //  If the query didn't find any word documents,
-  //  then we call dictionaryGenerator() to make one
-  if (documents.length === 0) {
-    docs = await callCloudFunction("dictionaryGenerator", words);
-    let document: DocumentData;
-    //  If there is an error when creating the document, we try a second time
-    if (docs.data.errorCode !== -1) {
-      docs = await callCloudFunction("dictionaryGenerator", words);
-    }
-    //  If the document is finally created succesfully, then we proceed
-    if (docs.data.errorCode === -1) {
-      document = docs.data.contents;
-      //  After having created a document, we store it in the database
-      await db.collection("dictionary").add(document)
-          .catch((error) => {
-            docs.data.error = `ERROR CREATING DOCUMENT IN FIRESTORE: ${error}`;
-            docs.data.errorCode = 8;
-          });
-      documents.push(document);
-    }
-  }
+      //  If the query didn't find any word documents,
+      //  then we call dictionaryGenerator() to make one
+      if (documents.length === 0) {
+        let document: DocumentData;
+        response = await callCloudFunction("dictionaryGenerator", words);
+        //  If there is an error when creating the document, try a second time
+        if (response.data.errorCode !== -1) {
+          response = await callCloudFunction("dictionaryGenerator", words);
+        }
+        //  If the document is finally created succesfully, then we proceed
+        if (response.data.errorCode === -1) {
 
-  //  Finally we return the response to the client
-  docs.data.contents = documents;
-  res.status(200).send(docs);
-});
+          //  POR HACER --> El codigo en GCP se para aqui (linea de mas abajo),
+          //  averiguar como solucionar esto
+          functions.logger.warn(`RESPONSE CONTENTS: ${response.data.contents}`);
+          document = response.data.contents;
+
+          //  After having created a document, we store it in the database
+          await db.collection("dictionary").add(document)
+              .catch((error) => {
+                response.data.error = `ERROR IN FIRESTORE: ${error}`;
+                response.data.errorCode = 8;
+              });
+          documents.push(document);
+        }
+      }
+
+      //  Finally we return the response to the client
+      response.data.contents = documents;
+      res.status(200).send(response);
+    });
 
 
 //  Self-made algorithm to search efficiently for word results
@@ -170,30 +177,39 @@ export function optimiseQuery(query: Query<DocumentData>,
 
 
 //  Calls any of your cloud functions and returns its response
-export async function callCloudFunction(name: string, payload: string)
+export async function callCloudFunction(name: string, message: string)
 : Promise<any> {
-  let response = new Response();
-  response.data.contents = new WordDocument(payload);
+  const response = new Response();
+  // response.data.contents = new WordDocument(data);
   const url = `https://europe-west1-candle-9cfbb.cloudfunctions.net/${name}`;
-  await fetch(url, {
-    method: "POST",
+  await fetch(url, {method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(payload),
-  })
+    body: JSON.stringify({"words": message})}
+  )
       .then(async (result) => {
-        response = JSON.parse(await result.json()).data;
+        const res = await result.text();
+        //  Esta linea es la que parece dar problemas en GCF:
+        //  response.data = JSON.parse(res).data;
+
+        //  POR HACER --> esta linea de abajo hay que arreglarla
+        //  para que el objeto response tenga un formato adecuado,
+        //  sin los campos de "error" y "errorCode" duplicados
+        response.data.contents = res;
       })
       .catch((error) => {
         response.data.error = `ERROR CALLING CLOUD FUNCTION: ${error}`;
         response.data.errorCode = 7;
+
+        //  La ultima linea sirve para loguear informacion a GCP
+        const message = JSON.stringify(response.data);
+        functions.logger.warn("RESPONSE CONTENTS:", { message });
       });
   return response;
 }
 
 
-//  Constructor for the document object
 export class WordDocument {
   //  Fields
   words: string;
@@ -221,7 +237,10 @@ export class WordDocument {
 
 //  Constructor for the response object
 export class Response {
+  // Fields
   data: Data;
+
+  // Constructor
   constructor() {
     this.data=new Data();
   }
@@ -229,10 +248,13 @@ export class Response {
 
 
 export class Data {
+  // Fields
   contents: any;
   error: string;
   errorCode: number;
   exactMatch: boolean;
+
+  // Constructor
   constructor() {
     this.contents=null;
     this.error="";
@@ -240,7 +262,3 @@ export class Data {
     this.exactMatch=false;
   }
 }
-
-
-//  Start writing Firebase Functions
-//  https://firebase.google.com/docs/functions/typescript
