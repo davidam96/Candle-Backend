@@ -33,8 +33,7 @@ export class WordResponse {
 export const searchDictionary = functions.region("europe-west1")
     .https.onRequest(async (req, res) => {
       //  Parsing the request into an object
-      const words: string = req.body.words ||
-      JSON.parse(req.body.data).words || "";
+      const words: string = req.body.words || "";
 
       //  Creating a personalised response object and a documents array
       let wres = new WordResponse();
@@ -66,7 +65,11 @@ export const searchDictionary = functions.region("europe-west1")
         //  then we proceed to store it in the database
         if (wres.errorCode === -1) {
           document = wres.docs[0];
-          await db.collection("dictionary").add(document)
+
+          const message = JSON.stringify(document);
+          functions.logger.log("DOCUMENT CONTENTS:", {message});
+          
+          await db.collection("dictionary").doc(words).set(document)
               .catch((error) => {
                 wres.error = `ERROR IN FIRESTORE: ${error}`;
                 wres.errorCode = 8;
@@ -209,8 +212,8 @@ export async function callCloudFunction(name: string, message: string)
     body: JSON.stringify({"words": message})}
   )
       .then(async (result) => {
-        //  FUNCIONARA? (POR HACER)
-        const doc = await result.json() as DocumentData;
+        const cfresponse = await result.json() as WordResponse;
+        const doc = cfresponse.docs[0] as DocumentData;
         wres.docs.push(doc);
       })
       .catch((error) => {

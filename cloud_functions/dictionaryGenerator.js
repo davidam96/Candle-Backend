@@ -182,17 +182,28 @@ export async function checkPhrase(document) {
         max_tokens: 5
     });
 
+    //  GPT3 sorts out wether a group of words is a noun
+    const nn_p = openai.createCompletion("text-davinci-002", 
+    {
+        prompt: `Is "${document.words}" a noun?:\r\n`
+        + "(yes/no)\r\n",
+        max_tokens: 5
+    });
+
     //  Fills the word type and returns true if the
     //  phrase is wether an idiom, a verb or both.
-    await Promise.all([idm_p, vb_p])
-    .then(([idm_r, vb_r]) => {
+    await Promise.all([idm_p, vb_p, nn_p])
+    .then(([idm_r, vb_r, nn_r]) => {
         const isIdiom = idm_r.data.choices[0].text.toLowerCase().includes("yes");
         const isVerb = vb_r.data.choices[0].text.toLowerCase().includes("yes");
+        const isNoun = nn_r.data.choices[0].text.toLowerCase().includes("yes");
         if (isIdiom)
             document.types.push("idiom");
         if (isVerb) 
             document.types.push("verb");
-        if (isIdiom || isVerb)
+        if (isNoun) 
+            document.types.push("noun");
+        if (isIdiom || isVerb || isNoun)
             isValidPhrase = true;
     });
     return isValidPhrase;
@@ -205,8 +216,7 @@ export async function populate(document) {
     //  GPT3 creates a promise with the 5 most common meanings for your word
     const mean_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `These are the 5 most common definitions for "${document.words}":\r\n`
-        + "(each definition must have more than 3 words)\r\n1. ",
+        prompt: `Write the 3 most common meanings for "${document.words}":\r\n1.`,
         max_tokens: 200
     });
 
@@ -216,24 +226,24 @@ export async function populate(document) {
         document.types.push(...types);
     }
 
-    //  GPT3 creates a response with 10 spanish translations for your word
+    //  GPT3 creates a response with 5 spanish translations for your word
     const tran_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `These are 10 translations for "${document.words}" in Spanish:\r\n`,
+        prompt: `Write 5 spanish synonyms for "${document.words}":\r\n`,
         max_tokens: 200
     });
 
     //  GPT3 creates a response with 10 synonyms for your word
     const syn_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `These are 10 synonyms for "${document.words}":\r\n`,
+        prompt: `Write 5 synonyms for "${document.words}":\r\n`,
         max_tokens: 200
     });
 
     //  GPT3 creates a response with 10 antonyms for your word
     const ant_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `These are 10 antonyms for "${document.words}":\r\n`,
+        prompt: `Write 3 antonyms for "${document.words}":\r\n1.`,
         max_tokens: 200
     });
 
@@ -290,8 +300,10 @@ export function cleanArray(array) {
         el = el.replace(/(\r?\n)+|\r+|\n+|\t+/gm, " ");
         //  Get rid of strange tags or equal signs
         el = el.replace(/\<([^\>]*)\>|([\s\S]*)\=/gm, '');
-        //  Get rid of some non-word characters
-        el = el.replace(/[^\w\s\'\,(áéíóú)]|\d/gm, '');
+        //  Get rid of some non-word characters and 'and'
+        el = el.replace(/[^\w\s\'\,(áéíóú)]|\d|,\s?and\s/gm, '');
+        //  Get rid of pronouns for the spanish translations
+        el = el.replace(/el |la |los |las /gmi, '');
         //  Put the clean element back inside the array
         array[i] = el.trim().toLowerCase();
     });
