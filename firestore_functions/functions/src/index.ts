@@ -60,15 +60,10 @@ export const searchDictionary = functions.region("europe-west1")
         if (wres.errorCode !== -1) {
           wres = await callCloudFunction("dictionaryGenerator", words);
         }
-
         //  If the document is finally created succesfully,
         //  then we proceed to store it in the database
         if (wres.errorCode === -1) {
           document = wres.docs[0];
-
-          const message = JSON.stringify(document);
-          functions.logger.log("DOCUMENT CONTENTS:", {message});
-          
           await db.collection("dictionary").doc(words).set(document)
               .catch((error) => {
                 wres.error = `ERROR IN FIRESTORE: ${error}`;
@@ -204,25 +199,30 @@ export function optimiseQuery(query: Query<DocumentData>,
 export async function callCloudFunction(name: string, message: string)
 : Promise<any> {
   const wres = new WordResponse();
+  const request = JSON.stringify({"words": message});
   const url = `https://europe-west1-candle-9cfbb.cloudfunctions.net/${name}`;
+
   await fetch(url, {method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({"words": message})}
+    body: request}
   )
       .then(async (result) => {
         const cfresponse = await result.json() as WordResponse;
         const doc = cfresponse.docs[0] as DocumentData;
         wres.docs.push(doc);
+        return wres;
       })
       .catch((error) => {
-        wres.error = `ERROR CALLING CLOUD FUNCTION: ${error}`;
+        wres.error = `${error}`;
         wres.errorCode = 7;
 
-        //  La ultima linea sirve para loguear informacion a GCP
-        const message = JSON.stringify(wres);
-        functions.logger.warn("RESPONSE CONTENTS:", {message});
+        //  Estas lineas sirven para loguear informacion a GCP
+        const message: string = JSON.stringify(wres);
+        functions.logger.error("ERROR CALLING CLOUD FUNCTION",
+            {message});
+
+        return wres;
       });
-  return wres;
 }

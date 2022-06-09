@@ -217,6 +217,7 @@ export async function populate(document) {
     const mean_p = openai.createCompletion("text-davinci-002", 
     {
         prompt: `Write the 3 most common meanings for "${document.words}":\r\n1.`,
+        temperature: 0.9,
         max_tokens: 200
     });
 
@@ -230,21 +231,24 @@ export async function populate(document) {
     const tran_p = openai.createCompletion("text-davinci-002", 
     {
         prompt: `Write 5 spanish synonyms for "${document.words}":\r\n`,
-        max_tokens: 200
+        temperature: 0.9,
+        max_tokens: 50
     });
 
     //  GPT3 creates a response with 10 synonyms for your word
     const syn_p = openai.createCompletion("text-davinci-002", 
     {
         prompt: `Write 5 synonyms for "${document.words}":\r\n`,
-        max_tokens: 200
+        temperature: 0.9,
+        max_tokens: 50
     });
 
     //  GPT3 creates a response with 10 antonyms for your word
     const ant_p = openai.createCompletion("text-davinci-002", 
     {
         prompt: `Write 3 antonyms for "${document.words}":\r\n1.`,
-        max_tokens: 200
+        temperature: 0.9,
+        max_tokens: 30
     });
 
     //  GPT3 creates a response with 3 phrase examples for your word
