@@ -12,6 +12,24 @@ const firebase = admin.initializeApp();
 const db = firebase.firestore();
 
 
+//  Constructor for the response object
+export class WordResponse {
+  // Fields
+  docs: Array<DocumentData>;
+  error: string;
+  errorCode: number;
+  exactMatch: boolean;
+
+  // Constructor
+  constructor() {
+    this.docs=[];
+    this.error="";
+    this.errorCode=-1;
+    this.exactMatch=false;
+  }
+}
+
+
 export const searchDictionary = functions.region("europe-west1")
     .https.onRequest(async (req, res) => {
       //  Parsing the request into an object
@@ -43,14 +61,11 @@ export const searchDictionary = functions.region("europe-west1")
         if (wres.errorCode !== -1) {
           wres = await callCloudFunction("dictionaryGenerator", words);
         }
-        //  If the document is finally created succesfully, then we proceed
-        if (wres.errorCode === -1) {
-          //  POR HACER --> El codigo en GCP se para aqui (linea de mas abajo),
-          //  averiguar como solucionar esto
-          functions.logger.warn(`RESPONSE OBJECT: ${wres}`);
-          document = wres.docs[0];
 
-          //  After having created a document, we store it in the database
+        //  If the document is finally created succesfully,
+        //  then we proceed to store it in the database
+        if (wres.errorCode === -1) {
+          document = wres.docs[0];
           await db.collection("dictionary").add(document)
               .catch((error) => {
                 wres.error = `ERROR IN FIRESTORE: ${error}`;
@@ -207,22 +222,4 @@ export async function callCloudFunction(name: string, message: string)
         functions.logger.warn("RESPONSE CONTENTS:", {message});
       });
   return wres;
-}
-
-
-//  Constructor for the response object
-export class WordResponse {
-  // Fields
-  docs: Array<DocumentData>;
-  error: string;
-  errorCode: number;
-  exactMatch: boolean;
-
-  // Constructor
-  constructor() {
-    this.docs=[];
-    this.error="";
-    this.errorCode=-1;
-    this.exactMatch=false;
-  }
 }
