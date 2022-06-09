@@ -307,7 +307,7 @@ export function cleanArray(array) {
         //  Get rid of some non-word characters and 'and'
         el = el.replace(/[^\w\s\'\,(áéíóú)]|\d|,\s?and\s/gm, '');
         //  Get rid of pronouns for the spanish translations
-        el = el.replace(/el |la |los |las /gmi, '');
+        el = el.replace(/^el |^la |^los |^las /gmi, '');
         //  Put the clean element back inside the array
         array[i] = el.trim().toLowerCase();
     });

@@ -212,7 +212,6 @@ export async function callCloudFunction(name: string, message: string)
         const cfresponse = await result.json() as WordResponse;
         const doc = cfresponse.docs[0] as DocumentData;
         wres.docs.push(doc);
-        return wres;
       })
       .catch((error) => {
         wres.error = `${error}`;
@@ -221,8 +220,7 @@ export async function callCloudFunction(name: string, message: string)
         //  Estas lineas sirven para loguear informacion a GCP
         const message: string = JSON.stringify(wres);
         functions.logger.error("ERROR CALLING CLOUD FUNCTION",
-            {message});
-
-        return wres;
+            {"error": message});
       });
+  return wres;
 }
