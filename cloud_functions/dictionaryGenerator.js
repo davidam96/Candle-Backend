@@ -236,7 +236,7 @@ export async function populate(document) {
     {
         prompt: `Write 5 translations for "${document.words}" in Spanish:\r\n`,
         temperature: 0.95,
-        max_tokens: 100
+        max_tokens: 200
     });
 
     //  GPT3 creates a response with 10 synonyms for your word
@@ -244,7 +244,7 @@ export async function populate(document) {
     {
         prompt: `Write 5 synonyms for "${document.words}":\r\n`,
         temperature: 0.9,
-        max_tokens: 100
+        max_tokens: 200
     });
 
     //  GPT3 creates a response with 10 antonyms for your word
@@ -253,7 +253,7 @@ export async function populate(document) {
         prompt: `What would be the opposite of "${document.words}"?`
         + `(just write 3 words that mean the contrary to "${document.words}")`,
         temperature: 0.7,
-        max_tokens: 100
+        max_tokens: 200
     });
 
     //  GPT3 creates a response with 3 phrase examples for your word
@@ -406,5 +406,5 @@ export function makeCombinations(text) {
 
 
 //  Execute all the above code
-init("semaphore");
+init("coach potato");
 
