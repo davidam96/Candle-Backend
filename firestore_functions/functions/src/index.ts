@@ -209,8 +209,11 @@ export async function callCloudFunction(name: string, message: string)
     body: request}
   )
       .then(async (result) => {
-        const cfresponse = await result.json() as WordResponse;
-        const doc = cfresponse.docs[0] as DocumentData;
+        const dgres = await result.json() as WordResponse;
+        //  (POR HACER): El problema con que no se propaguen bien los errores esta
+        //  aqui, ya que deberias hacer wres = dgres, estas guardandote solo los
+        //  documentos que generas y no los errores que se puedan generar tambien.
+        const doc = dgres.docs[0] as DocumentData;
         wres.docs.push(doc);
       })
       .catch((error) => {

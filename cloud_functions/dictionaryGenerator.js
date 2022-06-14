@@ -69,6 +69,10 @@ export async function init(words) {
     //  wether it is populated or it is not (due to an error)
     response.docs.push(document);
 
+    // (LOCAL: log the response in the terminal)
+    const txt = JSON.stringify(response);
+    console.log(txt);
+
     return response;
 }
 
@@ -230,9 +234,9 @@ export async function populate(document) {
     //  GPT3 creates a response with 5 spanish translations for your word
     const tran_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Write 5 spanish synonyms for "${document.words}":\r\n`,
-        temperature: 0.9,
-        max_tokens: 50
+        prompt: `Write 5 translations for "${document.words}" in Spanish:\r\n`,
+        temperature: 0.95,
+        max_tokens: 100
     });
 
     //  GPT3 creates a response with 10 synonyms for your word
@@ -240,15 +244,16 @@ export async function populate(document) {
     {
         prompt: `Write 5 synonyms for "${document.words}":\r\n`,
         temperature: 0.9,
-        max_tokens: 50
+        max_tokens: 100
     });
 
     //  GPT3 creates a response with 10 antonyms for your word
     const ant_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Write 3 antonyms for "${document.words}":\r\n1.`,
-        temperature: 0.9,
-        max_tokens: 30
+        prompt: `What would be the opposite of "${document.words}"?`
+        + `(just write 3 words that mean the contrary to "${document.words}")`,
+        temperature: 0.7,
+        max_tokens: 100
     });
 
     //  GPT3 creates a response with 3 phrase examples for your word
@@ -267,13 +272,13 @@ export async function populate(document) {
         let meanings = cleanArray(meanings_txt.split(/\d./gm));
         //  Convert the translations response text to an array
         const translations_txt = tran_r.data.choices[0].text;
-        let translations = cleanArray(translations_txt.split(/\d.|\,/gm));
+        let translations = cleanArray(translations_txt.split(/\d.|, /gm));
         //  Convert the synonyms response text to an array
         const synonyms_txt = syn_r.data.choices[0].text;
-        let synonyms = cleanArray(synonyms_txt.split(/\d.|\,/gm));
+        let synonyms = cleanArray(synonyms_txt.split(/\d.|, /gm));
         //  Convert the antonyms response text to an array
         const antonyms_txt = ant_r.data.choices[0].text;
-        let antonyms = cleanArray(antonyms_txt.split(/\d.|\,/gm));
+        let antonyms = cleanArray(antonyms_txt.split(/\d.|, /gm));
         //  Convert the examples response text to an array
         const examples_txt = ex_r.data.choices[0].text;
         let examples = cleanArray(examples_txt.split(/\d./gm));
@@ -305,11 +310,13 @@ export function cleanArray(array) {
         //  Get rid of strange tags or equal signs
         el = el.replace(/\<([^\>]*)\>|([\s\S]*)\=/gm, '');
         //  Get rid of some non-word characters and 'and'
-        el = el.replace(/[^\w\s\'\,(áéíóú)]|\d|,\s?and\s/gm, '');
+        el = el.replace(/[^\w\s\'\,(áéíóúñ)]|\d|,?\s?and /gmi, '');
+        //  Trim and lowercase the text
+        el = el.trim().toLowerCase();
         //  Get rid of pronouns for the spanish translations
-        el = el.replace(/^el |^la |^los |^las /gmi, '');
+        el = el.replace(/^el |^las? |^los |^una? /gmi, '');
         //  Put the clean element back inside the array
-        array[i] = el.trim().toLowerCase();
+        array[i] = el;
     });
     array.forEach((el, i) => {
         if (el === '' || el === "" || el === '.' || el === ',')
@@ -399,5 +406,5 @@ export function makeCombinations(text) {
 
 
 //  Execute all the above code
-init("put up with")
+init("semaphore");
 
