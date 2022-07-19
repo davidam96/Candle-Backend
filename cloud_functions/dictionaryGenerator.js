@@ -251,7 +251,7 @@ export async function populate(document) {
     const ant_p = openai.createCompletion("text-davinci-002", 
     {
         prompt: `What would be the opposite of "${document.words}"?`
-        + `(just write 3 words that mean the contrary to "${document.words}")`,
+        + `(just write 3 words or verbs that mean the contrary to "${document.words}")`,
         temperature: 0.7,
         max_tokens: 200
     });
@@ -299,11 +299,6 @@ export async function populate(document) {
 
 //  Uses regex to clean string elements inside of an array
 export function cleanArray(array) {
-    if (array.length === 1) {
-        //  This is a special case which only triggers for synonyms and translations:
-        //  If they arrive into one line separated only by spaces, this splits them apart
-        array = array.split(/\s/gm);
-    }
     array.forEach((el, i) => {
         //  Fuse multiline into one line
         el = el.replace(/(\r?\n)+|\r+|\n+|\t+/gm, " ");
@@ -406,5 +401,5 @@ export function makeCombinations(text) {
 
 
 //  Execute all the above code
-init("coach potato");
+init("you can lead a horse to water but you can't make him drink");
 

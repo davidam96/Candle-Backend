@@ -43,13 +43,13 @@ export const searchDictionary = functions.region("europe-west1")
       //  a flag back to the client to implement a new functionality
       const perfectQuery = await db.collection("dictionary")
           .where("words", "==", words).get();
-
-      if (perfectQuery.docs.length > 0) {
+      if (!perfectQuery.empty) {
         wres.exactMatch = true;
-        documents.push(...perfectQuery.docs);
-      } else {
-        documents = await searchAlgorithm(words);
       }
+
+      //  Executes the search algorithm to find if there are entries
+      //  in the database matching the words that the client searched for
+      documents = await searchAlgorithm(words);
 
       //  If the query didn't find any word documents,
       //  then we call dictionaryGenerator() to make one
@@ -60,6 +60,7 @@ export const searchDictionary = functions.region("europe-west1")
         if (wres.errorCode !== -1) {
           wres = await callCloudFunction("dictionaryGenerator", words);
         }
+
         //  If the document is finally created succesfully,
         //  then we proceed to store it in the database
         if (wres.errorCode === -1) {
@@ -69,6 +70,7 @@ export const searchDictionary = functions.region("europe-west1")
                 wres.error = `ERROR IN FIRESTORE: ${error}`;
                 wres.errorCode = 8;
               });
+
           documents.push(document);
         }
       }
@@ -83,6 +85,8 @@ export const searchDictionary = functions.region("europe-west1")
 //  in a dictionary that match with the given word request
 export async function searchAlgorithm(words: string)
 : Promise<Array<DocumentData>> {
+  let documents: Array<DocumentData> = [];
+
   //  First of all, we create the subcombinations of 2 words
   //  for the req text that has been sent from the client
   const combinations = makeCombinations(words);
@@ -91,7 +95,8 @@ export async function searchAlgorithm(words: string)
   if (combinations.length === 0) {
     const query = await db.collection("dictionary")
         .where("words", "==", words).get();
-    return query.docs;
+    documents = getDocumentData(query.docs);
+    return documents;
   }
 
   //  Firestore's arrayContainsAny() method only allows querying
@@ -101,7 +106,6 @@ export async function searchAlgorithm(words: string)
 
   //  Then, we call as much queries as necessary to return
   //  all the documents that match with what's in the database
-  let documents: Array<DocumentData> = [];
   const firstBatch: Array<Promise<QuerySnapshot<DocumentData>>> = [];
   const secondBatch: Array<Promise<QuerySnapshot<DocumentData>>> = [];
 
@@ -116,23 +120,23 @@ export async function searchAlgorithm(words: string)
   });
 
   await Promise.all(firstBatch)
-      .then((snapshots) => {
+      .then((queries) => {
         //  We pull out the documents from the query snapshots
-        snapshots.forEach((snapshot) => {
-          documents.push(...snapshot.docs);
+        queries.forEach((query) => {
+          documents.push(...getDocumentData(query.docs));
         });
         //  This line of code erases any duplicate documents
         documents = [...new Set(documents)];
       });
 
   //  Second batch of queries:
-  //  (last 2/3, optimised hopefully)
+  //  (last 2/3, hopefully optimised)
   groups.forEach(async (group: Array<string>, i: number) => {
     if (i >= Math.floor(groups.length/3) ) {
       let query = db.collection("dictionary")
           .where("combinations", "array-contains-any", group);
       //  We optimise the subsequent queries to return the least
-      //  amount of duplicate data possible and in turn save more money
+      //  amount of duplicate data possible, and in turn save more money
       if (documents.length > 0) {
         query = optimiseQuery(query, documents);
       }
@@ -141,13 +145,24 @@ export async function searchAlgorithm(words: string)
   });
 
   await Promise.all(secondBatch)
-      .then((snapshots) => {
-        snapshots.forEach((snapshot) => {
-          documents.push(...snapshot.docs);
+      .then((queries) => {
+        queries.forEach((query) => {
+          documents.push(...getDocumentData(query.docs));
         });
         documents = [...new Set(documents)];
       });
 
+  return documents;
+}
+
+
+//  Gets the data from an array of firestore documents (they
+//  initially also contain other metadata, this pruns it out)
+function getDocumentData(docs: Array<DocumentData>) {
+  const documents: Array<DocumentData> = [];
+  docs.forEach((doc) => {
+    documents.push(doc.data());
+  });
   return documents;
 }
 
@@ -163,7 +178,6 @@ export function makeCombinations(text: string) {
       }
     });
   });
-  console.log(combinations.toString());
   return combinations;
 }
 
@@ -198,10 +212,12 @@ export function optimiseQuery(query: Query<DocumentData>,
 //  Calls any of your cloud functions and returns its response
 export async function callCloudFunction(name: string, message: string)
 : Promise<any> {
-  const wres = new WordResponse();
+  //  With this line we can define in Typescript an
+  //  object to which we canassign variables dinamically
+  let cfres: {[k: string]: any} = {};
+
   const request = JSON.stringify({"words": message});
   const url = `https://europe-west1-candle-9cfbb.cloudfunctions.net/${name}`;
-
   await fetch(url, {method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -209,21 +225,12 @@ export async function callCloudFunction(name: string, message: string)
     body: request}
   )
       .then(async (result) => {
-        const dgres = await result.json() as WordResponse;
-        //  (POR HACER): El problema con que no se propaguen bien los errores esta
-        //  aqui, ya que deberias hacer wres = dgres, estas guardandote solo los
-        //  documentos que generas y no los errores que se puedan generar tambien.
-        const doc = dgres.docs[0] as DocumentData;
-        wres.docs.push(doc);
+        cfres = await result.json() as WordResponse;
       })
       .catch((error) => {
-        wres.error = `${error}`;
-        wres.errorCode = 7;
-
-        //  Estas lineas sirven para loguear informacion a GCP
-        const message: string = JSON.stringify(wres);
-        functions.logger.error("ERROR CALLING CLOUD FUNCTION",
-            {"error": message});
+        cfres.error = `${error}`;
+        cfres.errorCode = 7;
       });
-  return wres;
+
+  return cfres;
 }
