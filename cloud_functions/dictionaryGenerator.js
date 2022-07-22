@@ -402,4 +402,3 @@ export function makeCombinations(text) {
 
 //  Execute all the above code
 init("you can lead a horse to water but you can't make him drink");
-

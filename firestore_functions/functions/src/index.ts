@@ -33,8 +33,8 @@ export class WordResponse {
 export const searchDictionary = functions.region("europe-west1")
     .https.onRequest(async (req, res) => {
       //  Parsing the request into an object
-      const words: string = req.body.words || "";
-
+      const words: string = req.body.words ||
+          JSON.parse(req.body.data).words || "";
       //  Creating a personalised response object and a documents array
       let wres = new WordResponse();
       let documents: Array<DocumentData> = [];
@@ -50,6 +50,7 @@ export const searchDictionary = functions.region("europe-west1")
       //  Executes the search algorithm to find if there are entries
       //  in the database matching the words that the client searched for
       documents = await searchAlgorithm(words);
+      wres.docs.push(...documents);
 
       //  If the query didn't find any word documents,
       //  then we call dictionaryGenerator() to make one
@@ -70,14 +71,11 @@ export const searchDictionary = functions.region("europe-west1")
                 wres.error = `ERROR IN FIRESTORE: ${error}`;
                 wres.errorCode = 8;
               });
-
-          documents.push(document);
         }
       }
 
       //  Finally we return the response to the client
-      wres.docs.push(...documents);
-      res.status(200).send(wres);
+      res.status(200).send({"data": wres});
     });
 
 
