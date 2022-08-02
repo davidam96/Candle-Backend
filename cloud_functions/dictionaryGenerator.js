@@ -35,6 +35,7 @@ export class WordDocument {
         this.antonyms=[];
         this.examples=[];
         this.combinations=[];
+        this.imageUrl="";
     }
 }
 
