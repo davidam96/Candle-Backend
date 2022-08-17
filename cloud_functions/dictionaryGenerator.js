@@ -27,6 +27,7 @@ export class WordResponse {
 export class WordDocument {
     constructor(words) {
         this.words=words;
+        this.plural="";
         this.wordCount=words.split(/\s/gm).length;
         this.types=[];
         this.meanings=[];
@@ -36,6 +37,13 @@ export class WordDocument {
         this.examples=[];
         this.combinations=[];
         this.imageUrl="";
+    }
+}
+
+export class WordMeaning {
+    constructor(meaning) {
+        this.meaning=meaning;
+        this.type="";
     }
 }
 
@@ -221,7 +229,7 @@ export async function populate(document) {
     //  GPT3 creates a promise with the 5 most common meanings for your word
     const mean_p = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Write the 3 most common meanings for "${document.words}":\r\n1.`,
+        prompt: `Write the 5 most common meanings for "${document.words}":\r\n1.`,
         temperature: 0.9,
         max_tokens: 200
     });
@@ -230,6 +238,11 @@ export async function populate(document) {
     if (document.words.split(/\s/gm).length === 1) {
         const types = await sortTypes(document.words);
         document.types.push(...types);
+    }
+
+    //  GPT3 writes the plural of your word
+    if (document.types.includes("noun")) {
+        document.plural = await findPlural(document.words);
     }
 
     //  GPT3 creates a response with 5 spanish translations for your word
@@ -288,7 +301,10 @@ export async function populate(document) {
             examples[i] = example;
         });
         //  Store all the data into the document object
-        document.meanings.push(...meanings);
+        meanings.forEach(meaning => {
+            let wordMeaning = new WordMeaning(meaning);
+            document.meanings.push(wordMeaning);
+        });
         document.translations.push(...translations);
         document.synonyms.push(...synonyms);
         document.antonyms.push(...antonyms);
@@ -306,7 +322,7 @@ export function cleanArray(array) {
         //  Get rid of strange tags or equal signs
         el = el.replace(/\<([^\>]*)\>|([\s\S]*)\=/gm, '');
         //  Get rid of some non-word characters and 'and'
-        el = el.replace(/[^\w\s\'\,(áéíóúñ)]|\d|,?\s?and /gmi, '');
+        el = el.replace(/[^\w\s\'\,(áéíóúñ)]|\d|^(\s?and\s)/gmi, '');
         //  Trim and lowercase the text
         el = el.trim().toLowerCase();
         //  Get rid of pronouns for the spanish translations
@@ -386,6 +402,21 @@ export async function sortTypes(word) {
 }
 
 
+//  Finds the plural of your word, if there is one
+export async function findPlural(words) {
+    let plural = "";
+    await openai.createCompletion("text-davinci-002", 
+    {
+        prompt: `Write the plural of "${words}":\r\n`,
+        temperature: 0.5,
+        max_tokens: 200
+    }).then(result => {
+        plural = correctWords(result.data.choices[0].text);
+    });
+    return plural;
+}
+
+
 //  Makes all the possible combinations of 2 words within a
 //  given text, it is used for querying words in firestore
 export function makeCombinations(text) {
@@ -402,4 +433,4 @@ export function makeCombinations(text) {
 
 
 //  Execute all the above code
-init("you can lead a horse to water but you can't make him drink");
+init("chilly pepper");
