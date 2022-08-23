@@ -340,13 +340,32 @@ export function cleanArray(array) {
 
 //  Sorts out all the possible syntactic types for a given word
 export async function sortTypes(word) {
+    let types = [];
+
     const nn_p = openai.createCompletion("text-davinci-002", 
     {
         prompt: `Is "${word}" a noun?\r\n`
         + "(yes/no)\r\n",
         max_tokens: 5
     });
-
+    const vb_p = openai.createCompletion("text-davinci-002", 
+    {
+        prompt: `Is "to ${word}" a valid verb?\r\n`
+        + "(yes/no)\r\n",
+        max_tokens: 5
+    });
+    const adj_p = openai.createCompletion("text-davinci-002", 
+    {
+        prompt: `Is "${word}" an adjective?\r\n`
+        + "(yes/no)\r\n",
+        max_tokens: 5
+    });
+    const adv_p = openai.createCompletion("text-davinci-002", 
+    {
+        prompt: `Is "${word}" an adverb?\r\n`
+        + "(yes/no)\r\n",
+        max_tokens: 5
+    });
     const pron_p = openai.createCompletion("text-davinci-002", 
     {
         prompt: `Is "${word}" a pronoun?\r\n`
@@ -354,50 +373,57 @@ export async function sortTypes(word) {
         max_tokens: 5
     });
 
-    const vb_p = openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `Is "to ${word}" a valid verb?\r\n`
-        + "(yes/no)\r\n",
-        max_tokens: 5
-    });
-
-    const adj_p = openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `Is "${word}" an adjective?\r\n`
-        + "(yes/no)\r\n",
-        max_tokens: 5
-    });
-
-    const adv_p = openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `Is "${word}" an adverb?\r\n`
-        + "(yes/no)\r\n",
-        max_tokens: 5
-    });
-
-    const prep_p = openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `Is "${word}" a preposition?\r\n`
-        + "(yes/no)\r\n",
-        max_tokens: 5
-    });
-
-    let types = [];
-    await Promise.all([nn_p, vb_p, adj_p, adv_p, prep_p, pron_p])
-    .then(([nn_r, vb_r, adj_r, adv_r, prep_r, pron_r]) => {
+    await Promise.all([nn_p, vb_p, adj_p, adv_p, pron_p])
+    .then(([nn_r, vb_r, adj_r, adv_r, pron_r]) => {
         if (nn_r.data.choices[0].text.toLowerCase().includes("yes"))
             types.push("noun");
-        if (pron_r.data.choices[0].text.toLowerCase().includes("yes"))
-            types.push("pronoun");
         if (vb_r.data.choices[0].text.toLowerCase().includes("yes"))
             types.push("verb");
         if (adj_r.data.choices[0].text.toLowerCase().includes("yes"))
             types.push("adjective");
         if (adv_r.data.choices[0].text.toLowerCase().includes("yes"))
             types.push("adverb");
-        if (prep_r.data.choices[0].text.toLowerCase().includes("yes"))
-            types.push("preposition");
+        if (pron_r.data.choices[0].text.toLowerCase().includes("yes")) {
+            //  If pronoun, noun type is modified to pronoun
+            types[types.indexOf("noun")] = "pronoun";
+        }
     });
+
+
+    //  Only after having checked that the word does not belong to the
+    //  main gramatical types listed above, then we start to check the
+    //  other alternative and less common gramatical types.
+    if (types.length === 0) {
+        const prep_p = openai.createCompletion("text-davinci-002", 
+        {
+            prompt: `Is "${word}" a preposition?\r\n`
+            + "(yes/no)\r\n",
+            max_tokens: 5
+        });
+        const conj_p = openai.createCompletion("text-davinci-002", 
+        {
+            prompt: `Is "${word}" a conjuction?\r\n`
+            + "(yes/no)\r\n",
+            max_tokens: 5
+        });
+        const inter_p = openai.createCompletion("text-davinci-002", 
+        {
+            prompt: `Is "${word}" an interjection?\r\n`
+            + "(yes/no)\r\n",
+            max_tokens: 5
+        });
+
+        await Promise.all([prep_p, conj_p, inter_p])
+        .then(([prep_r, conj_r, inter_r]) => {
+            if (prep_r.data.choices[0].text.toLowerCase().includes("yes"))
+                types.push("preposition");
+            if (conj_r.data.choices[0].text.toLowerCase().includes("yes"))
+                types.push("conjuction");
+            if (inter_r.data.choices[0].text.toLowerCase().includes("yes"))
+                types.push("interjection");
+        });
+    }
+
     return types;
 }
 

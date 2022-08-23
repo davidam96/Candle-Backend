@@ -39,6 +39,20 @@ export const searchDictionary = functions.region("europe-west1")
       let wres = new WordResponse();
       let documents: Array<DocumentData> = [];
 
+      //  (POR HACER) --> PLURALES
+      //  SOLUCIÓN BUENA: sería hacer 2 queries diferentes a la vez en la BDD,
+      //  una que ya esta escrita abajo que busca un match exacto de la palabra
+      //  en singular y otra que buscaría un match exacto de la palabra en plural.
+      //  Si ninguna de las dos queries no ofrece resultados, eso no quiere decir
+      //  que la palabra esté en plural por tanto tendrías que preguntarle a OpenAI
+      //  en dictionaryGenerator() si la palabra viene en plural o en singular y 
+      //  generar su reverso. También debes mirar el codigo que tienes para establecer
+      //  el tipado de una frase, e intentar fusionarlo con el codigo que ya tienes
+      //  en sortTypes().
+      //  dictionaryGenerator() lines 208, 400 --> code for the gramatical type sorting
+      //  of both a word and a phrase
+
+
       //  If the search result matches exactly the result, we send
       //  a flag back to the client to implement a new functionality
       const perfectQuery = await db.collection("dictionary")
