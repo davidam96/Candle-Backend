@@ -41,9 +41,9 @@ export class WordDocument {
 }
 
 export class WordMeaning {
-    constructor(meaning) {
+    constructor(meaning, type) {
         this.meaning=meaning;
-        this.type="";
+        this.type=type;
     }
 }
 
@@ -60,7 +60,7 @@ export async function dictionaryGenerator(req, res) {
 //  Main function, executes everything else
 export async function init(words) {
     //  Correct the words in the document
-    words = correctWords(words);
+    words = cleanText(words);
 
     //  Parse the request JSON into a document object
     let document = new WordDocument(words);
@@ -86,12 +86,42 @@ export async function init(words) {
 }
 
 
-//  Filters out repeated words and multilines
-export function correctWords(words) {
-    //  The first regex serves to fuse a multiline string into a single line
-    words = words.replace(/(\r?\n)+|\r+|\n+|\t+/gm, " ").trim().toLowerCase();
-    //  This second regex is used to eliminate all duplicate consecutive words except one
-    return words.replace(/\b(\w+)(?=\W\1\b)+\W?/gm, "");
+//  Uses regexes to clean any given text coming
+//  either from a user request or an OpenAI response
+export function cleanText(words) {
+    // --------  ORIGINAL CODE OF cleanText()  ---------
+    //  Fuse a multiline string into a single line
+    words = words.replace(/(\r?\n)+|\r+|\n+|\t+/gm, " ");
+    //  Eliminate all duplicate consecutive words except one
+    words = words.replace(/\b(\w+)(?=\W\1\b)+\W?/gm, "");
+
+
+    // --------  FORMER CODE OF cleanArray()  ----------
+    //  Get rid of some non-word characters & 'and' at beginning of text
+    words = words.replace(/[^\w\s\'\,(áéíóúñ)]|\d|^(\s?and\s)/gmi, '');
+    //  Get rid of strange tags or equal signs
+    words = words.replace(/\<([^\>]*)\>|([\s\S]*)\=/gm, '');
+    //  Trim and lowercase the text
+    words = words.trim().toLowerCase();
+    //  Get rid of spanish pronouns
+    words = words.replace(/^el |^las? |^los |^una?/gmi, '');
+    return words;
+}
+
+
+//  Cleanses the text of all elements of an array of string elements
+export function cleanArray(array) {
+    array.forEach((el, i) => {
+        //  Correct the text inside of a given element
+        el = cleanText(el);
+        //  Put the clean element back inside the array
+        array[i] = el;
+    });
+    array.forEach((el, i) => {
+        if (el === '' || el === "" || el === '.' || el === ',')
+            array.splice(i,1);
+    });
+    return array;
 }
 
 
@@ -226,24 +256,49 @@ export async function checkPhrase(document) {
 //  Fills the document object with meanings for the word or phrase
 export async function populate(document) {
 
-    //  GPT3 creates a promise with the 5 most common meanings for your word
-    const mean_p = openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `Write the 5 most common meanings for "${document.words}":\r\n1.`,
-        temperature: 0.9,
-        max_tokens: 200
-    });
-
     //  GPT3 sorts the possible syntactic types for a given word
     if (document.words.split(/\s/gm).length === 1) {
         const types = await sortTypes(document.words);
         document.types.push(...types);
     }
 
+    //  (POR HACER) 
+    //  Hacer que GPT3 primero distinga si la palabra viene en plural o en singular,
+    //  y en función del resultado actuar en consecuencia en cada caso.
+    //  (el codigo de abajo y el metodo findPlural() están incompletos)
+
     //  GPT3 writes the plural of your word
     if (document.types.includes("noun")) {
         document.plural = await findPlural(document.words);
     }
+
+    //  (POR HACER)
+    //  Comprobar si el codigo de generar meanings funciona o no.
+    //  Problema!!: En algunos casos el texto de los meanings viene en blanco.
+    //  Problema!!: En algunos casos el texto de los meanings viene con el type entre parentesis, y además
+    //              luego en la propiedad 'meaning.type' el verdadero tipo que le deberia corresponder es otro
+    //              (Posible solucion): Parece que esto es debido a una race condition, el codigo de debajo de
+    //              hallar los meanings sigue ejecutandose, cuando deberia esperar a que este terminase primero.
+    //  EXTRA:      ¿Se pueden ejecutar las promesas que traen estos meanings en paralelo en vez de en serie?
+    //              (Posible solucion): Añadir una propiedad '.type' a cada promesa 'mean_p'
+
+
+    //  GPT3 generates meanings corresponding to each gramatical type your word has
+    document.types.forEach(async (type) => {   
+        const mean_r = await openai.createCompletion("text-davinci-002", 
+        {
+            prompt: `Write the 3 most common meanings for "${document.words}"\r\n`
+                + `(as "${type}")\r\n1. `,
+            temperature: 0.8,
+            max_tokens: 200
+        });
+        const meanings_txt = mean_r.data.choices[0].text;
+        let meanings = cleanArray(meanings_txt.split(/\d./gm));
+        meanings.forEach(meaning => {
+            let wordMeaning = new WordMeaning(meaning, type);
+            document.meanings.push(wordMeaning);
+        });
+    });
 
     //  GPT3 creates a response with 5 spanish translations for your word
     const tran_p = openai.createCompletion("text-davinci-002", 
@@ -279,11 +334,12 @@ export async function populate(document) {
     });
 
     //  This executes all the above promises asynchronously so they complete in parallel
-    await Promise.all([mean_p, tran_p, syn_p, ant_p, ex_p])
-    .then(([mean_r, tran_r, syn_r, ant_r, ex_r]) => {
+    await Promise.all([tran_p, syn_p, ant_p, ex_p])
+    .then(([tran_r, syn_r, ant_r, ex_r]) => {
         //  Convert the meanings response text to an array
-        const meanings_txt = mean_r.data.choices[0].text;
-        let meanings = cleanArray(meanings_txt.split(/\d./gm));
+/*         const meanings_txt = mean_r.data.choices[0].text;
+        let meanings = cleanArray(meanings_txt.split(/\d./gm)); */
+
         //  Convert the translations response text to an array
         const translations_txt = tran_r.data.choices[0].text;
         let translations = cleanArray(translations_txt.split(/\d.|, /gm));
@@ -301,40 +357,16 @@ export async function populate(document) {
             examples[i] = example;
         });
         //  Store all the data into the document object
-        meanings.forEach(meaning => {
+/*         meanings.forEach(meaning => {
             let wordMeaning = new WordMeaning(meaning);
             document.meanings.push(wordMeaning);
-        });
+        }); */
         document.translations.push(...translations);
         document.synonyms.push(...synonyms);
         document.antonyms.push(...antonyms);
         document.examples.push(...examples);
         document.combinations = makeCombinations(document.words);  
     });
-}
-
-
-//  Uses regex to clean string elements inside of an array
-export function cleanArray(array) {
-    array.forEach((el, i) => {
-        //  Fuse multiline into one line
-        el = el.replace(/(\r?\n)+|\r+|\n+|\t+/gm, " ");
-        //  Get rid of strange tags or equal signs
-        el = el.replace(/\<([^\>]*)\>|([\s\S]*)\=/gm, '');
-        //  Get rid of some non-word characters and 'and'
-        el = el.replace(/[^\w\s\'\,(áéíóúñ)]|\d|^(\s?and\s)/gmi, '');
-        //  Trim and lowercase the text
-        el = el.trim().toLowerCase();
-        //  Get rid of pronouns for the spanish translations
-        el = el.replace(/^el |^las? |^los |^una? /gmi, '');
-        //  Put the clean element back inside the array
-        array[i] = el;
-    });
-    array.forEach((el, i) => {
-        if (el === '' || el === "" || el === '.' || el === ',')
-            array.splice(i,1);
-    });
-    return array;
 }
 
 
@@ -437,7 +469,7 @@ export async function findPlural(words) {
         temperature: 0.5,
         max_tokens: 200
     }).then(result => {
-        plural = correctWords(result.data.choices[0].text);
+        plural = cleanText(result.data.choices[0].text);
     });
     return plural;
 }
@@ -459,4 +491,4 @@ export function makeCombinations(text) {
 
 
 //  Execute all the above code
-init("chilly pepper");
+init("like");
