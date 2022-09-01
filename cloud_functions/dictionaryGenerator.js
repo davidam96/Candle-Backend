@@ -272,24 +272,31 @@ export async function populate(document) {
         document.plural = await findPlural(document.words);
     }
 
-    //  (POR HACER)     --> Comprobar si el codigo de generar meanings funciona o no.
-    //  SOLUCIONADO:    En algunos casos el texto de los meanings viene con el type entre parentesis, y además
+    //  (POR HACER):    Comprobar si el codigo de generar meanings funciona o no.
+    //  HECHO:          En algunos casos el texto de los meanings viene con el type entre parentesis, y además
     //                  luego en la propiedad 'meaning.type' el verdadero tipo que le deberia corresponder es otro
     //                  Parece que esto es debido a una race condition, el codigo de debajo de hallar los meanings 
     //                  sigue ejecutandose, cuando deberia esperar a que este terminase primero.
-    //  SOLUCIONADO:    ¿Se pueden ejecutar las promesas que traen estos meanings en paralelo en vez de en serie?
+    //  HECHO:          ¿Se pueden ejecutar las promesas que traen estos meanings en paralelo en vez de en serie?
     //                  Sí --> Promise.all() preserva el orden de las responses según el orden de las promesas.
-    //  PROBLEMA:       En algunos casos el texto de los meanings viene en blanco.
+    //  POR HACER:      En algunos casos el texto de los meanings viene en blanco.
+    //  POR HACER:      Unificar frases de ejemplo con los meanings de cada type. Hacerlo también si puede ser con
+    //                  las traducciones, que sean específicas a cada type.
 
 
     //  GPT3 generates meanings corresponding to each gramatical type your word has
     let means_p = [];
     document.types.forEach(async (type) => {   
+        let n = "1", s = "";
+        if (type === "noun" || type === "verb") {
+            n = "2";
+            s = "s";
+        }
         const mean_p = openai.createCompletion("text-davinci-002", 
         {
-            prompt: `Write the 3 most common meanings for "${document.words}" as "${type}"`
+            prompt: `Write "${n}" common meaning"${s}" for "${document.words}" as "${type}"`
             + `(no examples)\r\n1. `,
-            temperature: 0.8,
+            temperature: 0.7,
             max_tokens: 200
         });
         means_p.push(mean_p);
@@ -299,7 +306,7 @@ export async function populate(document) {
     const tran_p = openai.createCompletion("text-davinci-002", 
     {
         prompt: `Write 5 translations for "${document.words}" in Spanish:\r\n`,
-        temperature: 0.95,
+        temperature: 0.9,
         max_tokens: 200
     });
 
@@ -410,8 +417,8 @@ export async function sortTypes(word) {
         max_tokens: 5
     });
 
-    await Promise.all([nn_p, vb_p, adj_p, adv_p, pron_p])
-    .then(([nn_r, vb_r, adj_r, adv_r, pron_r]) => {
+    await Promise.all([nn_p, vb_p, adj_p, adv_p, pron_p, prep_p])
+    .then(([nn_r, vb_r, adj_r, adv_r, pron_r, prep_r]) => {
         if (nn_r.data.choices[0].text.toLowerCase().includes("yes"))
             types.push("noun");
         if (vb_r.data.choices[0].text.toLowerCase().includes("yes"))
@@ -420,10 +427,10 @@ export async function sortTypes(word) {
             types.push("adjective");
         if (adv_r.data.choices[0].text.toLowerCase().includes("yes"))
             types.push("adverb");
-        if (pron_r.data.choices[0].text.toLowerCase().includes("yes")) {
-            //  If pronoun, noun type is modified to pronoun
-            types[types.indexOf("noun")] = "pronoun";
-        }
+        if (pron_r.data.choices[0].text.toLowerCase().includes("yes"))
+            types.push("pronoun");
+        if (prep_r.data.choices[0].text.toLowerCase().includes("yes"))
+            types.push("preposition");
     });
 
 
@@ -445,9 +452,7 @@ export async function sortTypes(word) {
         });
 
         await Promise.all([prep_p, conj_p, inter_p])
-        .then(([prep_r, conj_r, inter_r]) => {
-            if (prep_r.data.choices[0].text.toLowerCase().includes("yes"))
-                types.push("preposition");
+        .then(([conj_r, inter_r]) => {
             if (conj_r.data.choices[0].text.toLowerCase().includes("yes"))
                 types.push("conjuction");
             if (inter_r.data.choices[0].text.toLowerCase().includes("yes"))
