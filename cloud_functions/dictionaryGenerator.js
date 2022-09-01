@@ -272,32 +272,27 @@ export async function populate(document) {
         document.plural = await findPlural(document.words);
     }
 
-    //  (POR HACER)
-    //  Comprobar si el codigo de generar meanings funciona o no.
-    //  Problema!!: En algunos casos el texto de los meanings viene en blanco.
-    //  Problema!!: En algunos casos el texto de los meanings viene con el type entre parentesis, y además
-    //              luego en la propiedad 'meaning.type' el verdadero tipo que le deberia corresponder es otro
-    //              (Posible solucion): Parece que esto es debido a una race condition, el codigo de debajo de
-    //              hallar los meanings sigue ejecutandose, cuando deberia esperar a que este terminase primero.
-    //  EXTRA:      ¿Se pueden ejecutar las promesas que traen estos meanings en paralelo en vez de en serie?
-    //              (Posible solucion): Añadir una propiedad '.type' a cada promesa 'mean_p'
+    //  (POR HACER)     --> Comprobar si el codigo de generar meanings funciona o no.
+    //  SOLUCIONADO:    En algunos casos el texto de los meanings viene con el type entre parentesis, y además
+    //                  luego en la propiedad 'meaning.type' el verdadero tipo que le deberia corresponder es otro
+    //                  Parece que esto es debido a una race condition, el codigo de debajo de hallar los meanings 
+    //                  sigue ejecutandose, cuando deberia esperar a que este terminase primero.
+    //  SOLUCIONADO:    ¿Se pueden ejecutar las promesas que traen estos meanings en paralelo en vez de en serie?
+    //                  Sí --> Promise.all() preserva el orden de las responses según el orden de las promesas.
+    //  PROBLEMA:       En algunos casos el texto de los meanings viene en blanco.
 
 
     //  GPT3 generates meanings corresponding to each gramatical type your word has
+    let means_p = [];
     document.types.forEach(async (type) => {   
-        const mean_r = await openai.createCompletion("text-davinci-002", 
+        const mean_p = openai.createCompletion("text-davinci-002", 
         {
-            prompt: `Write the 3 most common meanings for "${document.words}"\r\n`
-                + `(as "${type}")\r\n1. `,
+            prompt: `Write the 3 most common meanings for "${document.words}" as "${type}"`
+            + `(no examples)\r\n1. `,
             temperature: 0.8,
             max_tokens: 200
         });
-        const meanings_txt = mean_r.data.choices[0].text;
-        let meanings = cleanArray(meanings_txt.split(/\d./gm));
-        meanings.forEach(meaning => {
-            let wordMeaning = new WordMeaning(meaning, type);
-            document.meanings.push(wordMeaning);
-        });
+        means_p.push(mean_p);
     });
 
     //  GPT3 creates a response with 5 spanish translations for your word
@@ -334,33 +329,37 @@ export async function populate(document) {
     });
 
     //  This executes all the above promises asynchronously so they complete in parallel
-    await Promise.all([tran_p, syn_p, ant_p, ex_p])
-    .then(([tran_r, syn_r, ant_r, ex_r]) => {
+    await Promise.all([...means_p, tran_p, syn_p, ant_p, ex_p])
+    .then((results) => {
         //  Convert the meanings response text to an array
-/*         const meanings_txt = mean_r.data.choices[0].text;
-        let meanings = cleanArray(meanings_txt.split(/\d./gm)); */
-
+        let l = document.types.length - 1;
+        results.forEach((_, i) => {
+            if (i <= l) {
+                let type = document.types[i];
+                const meanings_txt = results[i].data.choices[0].text;
+                let meanings = cleanArray(meanings_txt.split(/\d./gm));
+                meanings.forEach(meaning => {
+                    let wordMeaning = new WordMeaning(meaning, type);
+                    document.meanings.push(wordMeaning);
+                }); 
+            }
+        });
         //  Convert the translations response text to an array
-        const translations_txt = tran_r.data.choices[0].text;
+        const translations_txt = results[l+1].data.choices[0].text;
         let translations = cleanArray(translations_txt.split(/\d.|, /gm));
         //  Convert the synonyms response text to an array
-        const synonyms_txt = syn_r.data.choices[0].text;
+        const synonyms_txt = results[l+2].data.choices[0].text;
         let synonyms = cleanArray(synonyms_txt.split(/\d.|, /gm));
         //  Convert the antonyms response text to an array
-        const antonyms_txt = ant_r.data.choices[0].text;
+        const antonyms_txt = results[l+3].data.choices[0].text;
         let antonyms = cleanArray(antonyms_txt.split(/\d.|, /gm));
         //  Convert the examples response text to an array
-        const examples_txt = ex_r.data.choices[0].text;
+        const examples_txt = results[l+4].data.choices[0].text;
         let examples = cleanArray(examples_txt.split(/\d./gm));
         examples.forEach((example,i) => {
             example = example.charAt(0).toUpperCase() + `${example.slice(1)}.`;
             examples[i] = example;
         });
-        //  Store all the data into the document object
-/*         meanings.forEach(meaning => {
-            let wordMeaning = new WordMeaning(meaning);
-            document.meanings.push(wordMeaning);
-        }); */
         document.translations.push(...translations);
         document.synonyms.push(...synonyms);
         document.antonyms.push(...antonyms);
@@ -404,6 +403,12 @@ export async function sortTypes(word) {
         + "(yes/no)\r\n",
         max_tokens: 5
     });
+    const prep_p = openai.createCompletion("text-davinci-002", 
+    {
+        prompt: `Is "${word}" a preposition?\r\n`
+        + "(yes/no)\r\n",
+        max_tokens: 5
+    });
 
     await Promise.all([nn_p, vb_p, adj_p, adv_p, pron_p])
     .then(([nn_r, vb_r, adj_r, adv_r, pron_r]) => {
@@ -426,12 +431,6 @@ export async function sortTypes(word) {
     //  main gramatical types listed above, then we start to check the
     //  other alternative and less common gramatical types.
     if (types.length === 0) {
-        const prep_p = openai.createCompletion("text-davinci-002", 
-        {
-            prompt: `Is "${word}" a preposition?\r\n`
-            + "(yes/no)\r\n",
-            max_tokens: 5
-        });
         const conj_p = openai.createCompletion("text-davinci-002", 
         {
             prompt: `Is "${word}" a conjuction?\r\n`
