@@ -223,6 +223,7 @@ export async function populate(document) {
         document.types.push(...types);
     }
 
+
     //  POR HACER:  Hacer que GPT3 primero distinga si la palabra viene en plural o en singular,
     //              y en función del resultado actuar en consecuencia en cada caso.
     //              (el codigo de abajo y el metodo findPlural() están incompletos)
@@ -245,61 +246,80 @@ export async function populate(document) {
 
 
     //  GPT3 generates meanings corresponding to each gramatical type your word has
-    let means_p = [];
-    document.types.forEach(async (type) => {   
+    let bigGuy = [];
+    document.types.forEach(async (type) => {
+        let promises = [];
         let n = "1", s = "";
         if (type === "noun" || type === "verb") {
-            n = "2";
-            s = "s";
+            n = "2", s = "s";
         }
-        const mean_p = openai.createCompletion("text-davinci-002", 
+        const meanings = openai.createCompletion("text-davinci-002", 
         {
-            prompt: `Write "${n}" common meaning"${s}" for "${document.words}" as "${type}"`
+            prompt: `Write "${n}" common meaning"${s}" for "${document.words}" as "${type}"\r\n`
             + `(no examples)\r\n1. `,
             temperature: 0.7,
             max_tokens: 200
         });
-        means_p.push(mean_p);
+        promises.push(meanings);
+
+        //  1) DEBO REORGANIZAR EL CODIGO AQUI DEBAJO PARA QUE INCLUYA LAS DEMAS PROMESAS PARA LAS
+        //     RADUCCIONES, SINONIMOS, ANTONIMOS Y EJEMPLOS TIPADOS.
+        //  2) LUEGO GUARDAR TODAS LAS PROMESAS CORRESPONDIENTES A UN TIPO DETERMINADO EN UN ARRAY DE
+        //     PROMESAS.
+        //  3) CREAR TANTOS ARRAY DE PROMESAS COMO TIPOS GRAMATICALES HAYA
+        //  4) Y POR ULTIMO, SABIENDO QUE LA LONGITUD ES IGUAL PARA CADA UNO DE ESTOS ARRAYS, UTILIZAR
+        //     ESTE HECHO A TU FAVOR LUEGO EN EL Promise.all()
+
+
+        //  0) NO, ME HE EQUIVOCADO, LO QUE DEBO HACER ES ENCONTRAR UN MÉTODO DE PEDIRLE A GPT3 UNA MEZCLA
+        //     CON VARIOS TYPES A LA VEZ EN EL TEXTO DE CADA PROMESA Y LUEGO PROCESARLO CON REGEX.
+        // .....
+
+        //  GPT3 creates a response with 5 spanish translations for your word
+        let types_txt = document.types.join(", ");
+        let numTypes = document.types.length;
+        const translations = openai.createCompletion("text-davinci-002", 
+        {
+            prompt: `Write ${numTypes*2} translations for "${document.words}" in Spanish,`
+                + ` along with their gramatical types in parentheses:\r\n`
+                +`(must use all of these: ${types_txt})\r\n1. `,
+            temperature: 0.8,
+            presence_penalty: 1.8,
+            max_tokens: 200
+        });
+        promises.push(translations);
+
+        //  GPT3 creates a response with 10 synonyms for your word
+        const synonyms = openai.createCompletion("text-davinci-002", 
+        {
+            prompt: `Write 5 synonyms for "${document.words}":\r\n`,
+            temperature: 0.9,
+            max_tokens: 200
+        });
+        promises.push(synonyms);
+
+        //  GPT3 creates a response with 10 antonyms for your word
+        const antonyms = openai.createCompletion("text-davinci-002", 
+        {
+            prompt: `What would be the opposite of "${document.words}"?`
+            + `(just write 3 words or verbs that mean the contrary to "${document.words}")`,
+            temperature: 0.7,
+            max_tokens: 200
+        });
+        promises.push(antonyms);
+
+        //  GPT3 creates a response with 3 phrase examples for your word
+        const examples = openai.createCompletion("text-davinci-002", 
+        {
+            prompt: `Write 3 phrases with "${document.words}":\r\n1.`,
+            temperature: 0.9,
+            max_tokens: 200
+        });
+        promises.push(examples);
+
+        bigGuy.push(promises);
     });
 
-    //  POR HACER: Ver si funciona este código
-    //  GPT3 creates a response with 5 spanish translations for your word
-    let types = document.types.join(", ");
-    let numTypes = document.types.length;
-    const tran_p = openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `Write ${numTypes*2} translations for "${document.words}" in Spanish,`
-            + ` along with their gramatical types in parentheses:\r\n`
-            +`(must use all of these: ${types})\r\n1. `,
-        temperature: 0.8,
-        presence_penalty: 1.8,
-        max_tokens: 200
-    });
-
-    //  GPT3 creates a response with 10 synonyms for your word
-    const syn_p = openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `Write 5 synonyms for "${document.words}":\r\n`,
-        temperature: 0.9,
-        max_tokens: 200
-    });
-
-    //  GPT3 creates a response with 10 antonyms for your word
-    const ant_p = openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `What would be the opposite of "${document.words}"?`
-        + `(just write 3 words or verbs that mean the contrary to "${document.words}")`,
-        temperature: 0.7,
-        max_tokens: 200
-    });
-
-    //  GPT3 creates a response with 3 phrase examples for your word
-    const ex_p = openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `Write 3 phrases with "${document.words}":\r\n1.`,
-        temperature: 0.9,
-        max_tokens: 200
-    });
 
     //  This executes all the above promises asynchronously so they complete in parallel
     await Promise.all([...means_p, tran_p, syn_p, ant_p, ex_p])
