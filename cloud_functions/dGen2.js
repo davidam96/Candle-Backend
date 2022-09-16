@@ -216,22 +216,21 @@ export async function checkPhrase(document) {
 
 //  Fills the document object with meanings for the word or phrase
 export async function populate(document) {
+    let promises = [];
+    let types_txt = document.types.join(", ");
+    let types_count = document.types.length;
+    let varieties = []; 
 
     //  GPT3 sorts the possible syntactic types for a given word
     if (document.wordCount === 1) {
         const types = await sortTypes(document.words);
         document.types.push(...types);
     }
-
-
-    //  POR HACER:  Hacer que GPT3 primero distinga si la palabra viene en plural o en singular,
-    //              y en función del resultado actuar en consecuencia en cada caso.
-    //              (el codigo de abajo y el metodo findPlural() están incompletos)
-
-    //  GPT3 writes the plural of your word
-    if (document.types.includes("noun")) {
-        document.plural = await findPlural(document.words);
-    }
+    //  Right after we create an array with all possible word varieties
+    document.types.forEach(type => {
+        let variety = new WordVariety(type, document.words);
+        varieties.push(variety);
+    });
 
     //  HECHO:          Comprobar si el codigo de generar meanings funciona o no.
     //  HECHO:          En algunos casos el texto de los meanings viene con el type entre parentesis, y además
@@ -243,12 +242,18 @@ export async function populate(document) {
     //  HECHO:          En algunos casos el texto de los meanings viene en blanco. (Solo ocurre en modo debug)
     //  POR HACER:      Unificar frases de ejemplo con los meanings de cada type. Hacerlo también si puede ser con
     //                  las traducciones, que sean específicas a cada type.
+    //  POR HACER:      Hacer que GPT3 primero distinga si la palabra viene en plural o en singular,
+    //                  y en función del resultado actuar en consecuencia en cada caso.
+    //                  (el codigo de abajo y el metodo findPlural() están incompletos)
 
+
+    //  GPT3 writes the plural of your word
+    if (document.types.includes("noun")) {
+        document.plural = await findPlural(document.words);
+    }
 
     //  GPT3 generates meanings corresponding to each gramatical type your word has
-    let bigGuy = [];
     document.types.forEach(async (type) => {
-        let promises = [];
         let n = "1", s = "";
         if (type === "noun" || type === "verb") {
             n = "2", s = "s";
@@ -261,68 +266,63 @@ export async function populate(document) {
             max_tokens: 200
         });
         promises.push(meanings);
-
-        //  1) DEBO REORGANIZAR EL CODIGO AQUI DEBAJO PARA QUE INCLUYA LAS DEMAS PROMESAS PARA LAS
-        //     RADUCCIONES, SINONIMOS, ANTONIMOS Y EJEMPLOS TIPADOS.
-        //  2) LUEGO GUARDAR TODAS LAS PROMESAS CORRESPONDIENTES A UN TIPO DETERMINADO EN UN ARRAY DE
-        //     PROMESAS.
-        //  3) CREAR TANTOS ARRAY DE PROMESAS COMO TIPOS GRAMATICALES HAYA
-        //  4) Y POR ULTIMO, SABIENDO QUE LA LONGITUD ES IGUAL PARA CADA UNO DE ESTOS ARRAYS, UTILIZAR
-        //     ESTE HECHO A TU FAVOR LUEGO EN EL Promise.all()
-
-
-        //  0) NO, ME HE EQUIVOCADO, LO QUE DEBO HACER ES ENCONTRAR UN MÉTODO DE PEDIRLE A GPT3 UNA MEZCLA
-        //     CON VARIOS TYPES A LA VEZ EN EL TEXTO DE CADA PROMESA Y LUEGO PROCESARLO CON REGEX.
-        // .....
-
-        //  GPT3 creates a response with 5 spanish translations for your word
-        let types_txt = document.types.join(", ");
-        let numTypes = document.types.length;
-        const translations = openai.createCompletion("text-davinci-002", 
-        {
-            prompt: `Write ${numTypes*2} translations for "${document.words}" in Spanish,`
-                + ` along with their gramatical types in parentheses:\r\n`
-                +`(must use all of these: ${types_txt})\r\n1. `,
-            temperature: 0.8,
-            presence_penalty: 1.8,
-            max_tokens: 200
-        });
-        promises.push(translations);
-
-        //  GPT3 creates a response with 10 synonyms for your word
-        const synonyms = openai.createCompletion("text-davinci-002", 
-        {
-            prompt: `Write 5 synonyms for "${document.words}":\r\n`,
-            temperature: 0.9,
-            max_tokens: 200
-        });
-        promises.push(synonyms);
-
-        //  GPT3 creates a response with 10 antonyms for your word
-        const antonyms = openai.createCompletion("text-davinci-002", 
-        {
-            prompt: `What would be the opposite of "${document.words}"?`
-            + `(just write 3 words or verbs that mean the contrary to "${document.words}")`,
-            temperature: 0.7,
-            max_tokens: 200
-        });
-        promises.push(antonyms);
-
-        //  GPT3 creates a response with 3 phrase examples for your word
-        const examples = openai.createCompletion("text-davinci-002", 
-        {
-            prompt: `Write 3 phrases with "${document.words}":\r\n1.`,
-            temperature: 0.9,
-            max_tokens: 200
-        });
-        promises.push(examples);
-
-        bigGuy.push(promises);
     });
 
+    //  1) DEBO REORGANIZAR EL CODIGO AQUI DEBAJO PARA QUE INCLUYA LAS DEMAS PROMESAS PARA LAS
+    //     RADUCCIONES, SINONIMOS, ANTONIMOS Y EJEMPLOS TIPADOS.
+    //  2) LUEGO GUARDAR TODAS LAS PROMESAS CORRESPONDIENTES A UN TIPO DETERMINADO EN UN ARRAY DE
+    //     PROMESAS.
+    //  3) CREAR TANTOS ARRAY DE PROMESAS COMO TIPOS GRAMATICALES HAYA
+    //  4) Y POR ULTIMO, SABIENDO QUE LA LONGITUD ES IGUAL PARA CADA UNO DE ESTOS ARRAYS, UTILIZAR
+    //     ESTE HECHO A TU FAVOR LUEGO EN EL Promise.all()
+
+
+    //  0) NO, ME HE EQUIVOCADO, LO QUE DEBO HACER ES ENCONTRAR UN MÉTODO DE PEDIRLE A GPT3 UNA MEZCLA
+    //     CON VARIOS TYPES A LA VEZ EN EL TEXTO DE CADA PROMESA Y LUEGO PROCESARLO CON REGEX.
+    // .....
+
+    //  GPT3 creates a response with 5 spanish translations for your word
+    const translations = openai.createCompletion("text-davinci-002", 
+    {
+        prompt: `Write ${types_count*2} translations for "${document.words}" in Spanish,`
+            + ` along with their gramatical types in parentheses:\r\n`
+            +`(must use all of these: ${types_txt})\r\n1. `,
+        temperature: 0.8,
+        presence_penalty: 1.8,
+        max_tokens: 200
+    });
+    promises.push(translations);
+
+    //  GPT3 creates a response with 10 synonyms for your word
+    const synonyms = openai.createCompletion("text-davinci-002", 
+    {
+        prompt: `Write 5 synonyms for "${document.words}":\r\n`,
+        temperature: 0.9,
+        max_tokens: 200
+    });
+    promises.push(synonyms);
+
+    //  GPT3 creates a response with 10 antonyms for your word
+    const antonyms = openai.createCompletion("text-davinci-002", 
+    {
+        prompt: `What would be the opposite of "${document.words}"?`
+        + `(just write 3 words or verbs that mean the contrary to "${document.words}")`,
+        temperature: 0.7,
+        max_tokens: 200
+    });
+    promises.push(antonyms);
+
+    //  GPT3 creates a response with 3 phrase examples for your word
+    const examples = openai.createCompletion("text-davinci-002", 
+    {
+        prompt: `Write 3 phrases with "${document.words}":\r\n1.`,
+        temperature: 0.9,
+        max_tokens: 200
+    });
+    promises.push(examples);
 
     //  This executes all the above promises asynchronously so they complete in parallel
-    await Promise.all([...means_p, tran_p, syn_p, ant_p, ex_p])
+    await Promise.all([...promises])
     .then((results) => {
         //  Convert the meanings response text to an array
         let l = document.types.length - 1;
@@ -339,12 +339,85 @@ export async function populate(document) {
         });
 
 
-        //  POR HACER:  Cambiar este código para que recoja correctamente las
-        //              traducciones ahora tipadas gramaticalmente.
+        //  POR HACER:  OPTIMIZAR EL CODIGO DE AQUI ABAJO
 
         //  Convert the translations response text to an array
         const translations_txt = results[l+1].data.choices[0].text;
         let translations = cleanArray(translations_txt.split(/\d.|, /gm));
+        translations.forEach(translation => {
+            if (/\(.*idiom.*\)|\(.*expression.*\)/gmi.test(translation) ) {
+                let variety = varieties.find(v => {
+                    v.type = "idiom";
+                });
+                let index = varieties.indexOf(variety);
+                variety.translations.push(translation);
+                varieties[index] = variety;
+            }
+            else if (/\(.*verb.*\)/gmi.test(translation)) {
+                let variety = varieties.find(v => {
+                    v.type = "verb";
+                });
+                let index = varieties.indexOf(variety);
+                variety.translations.push(translation);
+                varieties[index] = variety;
+            } 
+            else if (/\(.*noun.*\)/gmi.test(translation)) {
+                let variety = varieties.find(v => {
+                    v.type = "noun";
+                });
+                let index = varieties.indexOf(variety);
+                variety.translations.push(translation);
+                varieties[index] = variety;
+            }
+            else if (/\(.*adjective.*\)/gmi.test(translation)) {
+                let variety = varieties.find(v => {
+                    v.type = "adjective";
+                });
+                let index = varieties.indexOf(variety);
+                variety.translations.push(translation);
+                varieties[index] = variety;
+            }
+            else if (/\(.*adverb.*\)/gmi.test(translation)) {
+                let variety = varieties.find(v => {
+                    v.type = "adverb";
+                });
+                let index = varieties.indexOf(variety);
+                variety.translations.push(translation);
+                varieties[index] = variety;
+            }
+            else if (/\(.*pronoun.*\)/gmi.test(translation)) {
+                let variety = varieties.find(v => {
+                    v.type = "pronoun";
+                });
+                let index = varieties.indexOf(variety);
+                variety.translations.push(translation);
+                varieties[index] = variety;
+            }
+            else if (/\(.*preposition.*\)/gmi.test(translation)) {
+                let variety = varieties.find(v => {
+                    v.type = "preposition";
+                });
+                let index = varieties.indexOf(variety);
+                variety.translations.push(translation);
+                varieties[index] = variety;
+            }
+            else if (/\(.*conjuction.*\)/gmi.test(translation)) {
+                let variety = varieties.find(v => {
+                    v.type = "preposition";
+                });
+                let index = varieties.indexOf(variety);
+                variety.translations.push(translation);
+                varieties[index] = variety;
+            }
+            else if (/\(.*interjection.*\)/gmi.test(translation)) {
+                let variety = varieties.find(v => {
+                    v.type = "interjection";
+                });
+                let index = varieties.indexOf(variety);
+                variety.translations.push(translation);
+                varieties[index] = variety;
+            }
+        });
 
 
         //  Convert the synonyms response text to an array
