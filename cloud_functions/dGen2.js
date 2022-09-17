@@ -369,7 +369,7 @@ export async function populate(document) {
             examples[i] = example;
         });
 
-        //  POR HACER --> Completa este código
+        //  POR HACER --> Completa este código (es la optimizacion que pedías mas arriba)
         document.types.forEach(type => {
             translations.forEach(translation => {
 
@@ -386,116 +386,104 @@ export async function sortTypes(words) {
     let wordCount = words.split(/\s/gm).length;
 
 
-    //  These two types have to be checked wether the request is a word or a phrase
-    const isNoun = openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `Is "${words}" a noun?\r\n`
-        + "(yes/no)\r\n",
-        max_tokens: 5
-    });
-    promises.push(isNoun);
+    //  GPT3 checks wether your word or phrase is a noun
+    promises.push(isType("noun"));
     types.push("noun");
-    const isVerb = openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `Is "to ${words}" a valid verb?\r\n`
-        + "(yes/no)\r\n",
-        max_tokens: 5
-    });
-    promises.push(isVerb);
+    //  GPT3 checks wether your word or phrase is a verb
+    promises.push(isType("verb"));
     types.push("verb");
 
 
     //  One-Words only
     if (wordCount === 1) {
-        const isAdjective = openai.createCompletion("text-davinci-002", 
-        {
-            prompt: `Is "${words}" an adjective?\r\n`
-            + "(yes/no)\r\n",
-            max_tokens: 5
-        });
-        promises.push(isAdjective);
+        //  GPT3 checks wether your word is an adjective
+        promises.push(isType("adjective"));
         types.push("adjective");
-        const isAdverb = openai.createCompletion("text-davinci-002", 
-        {
-            prompt: `Is "${words}" an adverb?\r\n`
-            + "(yes/no)\r\n",
-            max_tokens: 5
-        });
-        promises.push(isAdverb);
+        //  GPT3 checks wether your word is an adverb
+        promises.push(isType("adverb"));
         types.push("adverb");
-        const isPronoun = openai.createCompletion("text-davinci-002", 
-        {
-            prompt: `Is "${words}" a pronoun?\r\n`
-            + "(yes/no)\r\n",
-            max_tokens: 5
-        });
-        promises.push(isPronoun);
+        //  GPT3 checks wether your word is a pronoun
+        promises.push(isType("pronoun"));
         types.push("pronoun");
-        const isPreposition = openai.createCompletion("text-davinci-002", 
-        {
-            prompt: `Is "${words}" a preposition?\r\n`
-            + "(yes/no)\r\n",
-            max_tokens: 5
-        });
-        promises.push(isPreposition);
+        //  GPT3 checks wether your word is a preposition
+        promises.push(isType("preposition"));
         types.push("preposition");
-
-        //  Only after having checked that the word does not belong to the
-        //  main gramatical types listed above, then we start to check the
-        //  other alternative and less common gramatical types.
-        if (types.length === 0) {
-            const conj_p = openai.createCompletion("text-davinci-002", 
-            {
-                prompt: `Is "${words}" a conjuction?\r\n`
-                + "(yes/no)\r\n",
-                max_tokens: 5
-            });
-            const inter_p = openai.createCompletion("text-davinci-002", 
-            {
-                prompt: `Is "${words}" an interjection?\r\n`
-                + "(yes/no)\r\n",
-                max_tokens: 5
-            });
-
-            await Promise.all([prep_p, conj_p, inter_p])
-            .then(([conj_r, inter_r]) => {
-                if (conj_r.data.choices[0].text.toLowerCase().includes("yes"))
-                    types.push("conjuction");
-                if (inter_r.data.choices[0].text.toLowerCase().includes("yes"))
-                    types.push("interjection");
-            });
-        }
     }
 
 
     //  Phrases only
     if (wordCount > 1) {
         //  GPT3 sorts out wether a group of words is an idiom
-        const isIdiom = openai.createCompletion("text-davinci-002", 
-        {
-            prompt: `Is "${document.words}" an idiom?:\r\n`
-            + "(yes/no)\r\n",
-            max_tokens: 5
-        });
-        promises.push(isIdiom);
+        promises.push(isType("idiom"));
         types.push("idiom");
     }
 
 
     await Promise.all(promises)
-    .then(responses => {
+    .then(async(responses) => {
         responses.forEach((response, i) => {
+            //  If the response from GPT3 says that any type is not
+            //  valid, we simply remove it from the types array
             if (response.data.choices[0].text.toLowerCase().includes("no")) {
-                //  If the response from GPT3 says that any type is not
-                //  valid, we simply remove it from the types array
                 types.splice(i,1);
             }
+        });
+
+        //  Only after having checked that the word or phrase does not belong to
+        //  the main gramatical types listed above, then we start to check
+        //  other alternative and less common gramatical types
+        if (types.length === 0 && wordCount === 1) {
+            promises = [];
+            //  GPT3 checks wether your word is a conjuction
+            promises.push(isType("conjuction"));
+            types.push("conjuction");
+            //  GPT3 checks wether your word is an interjection
+            promises.push(isType("interjection"));
+            types.push("interjection");
+        }
+        else if (types.length === 0 && wordCount > 1) {
+            promises = [];
+            //  GPT3 checks wether your phrase is an expression
+            promises.push(isType("expression"));
+            types.push("expression");
+        }
+        await Promise.all(promises)
+        .then(responses => {
+            responses.forEach((response, i) => {
+                if (response.data.choices[0].text.toLowerCase().includes("no")) {
+                    types.splice(i,1);
+                }
+            });
         });
     });
 
     return types;
 }
 
+
+export function isType(type) {
+    let to = "", valid = "", n="", notIdiom = "";
+    if (type === "verb") {
+        to = "to";
+    }
+    else if (type === "verb" || type === "expression") {
+        valid = "valid";
+    }
+    else if (type === "adjective" || type === "adverb" || type === "idiom" ||
+        type === "interjection" || type === "expression") {
+        n = "n";
+    }
+
+    return openai.createCompletion("text-davinci-002", 
+    {
+        prompt: `Is ${to} "${document.words}" a${n} ${valid} ${type}?:\r\n`
+        + "(yes/no)\r\n",
+        max_tokens: 5
+    });
+}
+
+
+//  POR HACER --> Aqui es donde tienes que escribir el codigo optimizado de populate()
 export function sortVarieties(array, type, ) {
 
 }
