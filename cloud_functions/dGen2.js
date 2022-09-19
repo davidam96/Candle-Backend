@@ -117,7 +117,7 @@ export async function errorHandler(document) {
         if (allWordsValid) {
             //  Sort all the possible gramatical types
             //  first, wether it be a word or a phrase
-            const types = await sortTypes(document.words);
+            const types = await findTypes(document.words);
             document.types.push(...types);
 
             //  Then if there are no types inside the array,
@@ -159,13 +159,19 @@ export async function checkWord(word) {
 
 //  Fills the document object with meanings for the word or phrase
 export async function populate(document) {
+    const types_txt = document.types.join(", ");
+    const types_count = document.types.length;
     let varieties = []; 
     document.types.forEach(type => {
         let variety = new WordVariety(type, document.words);
         varieties.push(variety);
     });
-    const types_txt = document.types.join(", ");
-    const types_count = document.types.length;
+    varieties.store = function(array, type, field) {
+        const variety = this.find(v => {v.type = type;});
+        const index = this.indexOf(variety);
+        variety[`${field}`].push(...array);
+        this[index] = variety;
+    }
 
     //  HECHO:          Comprobar si el codigo de generar meanings funciona o no.
     //  HECHO:          En algunos casos el texto de los meanings viene con el type entre parentesis, y además
@@ -187,6 +193,21 @@ export async function populate(document) {
         document.plural = await findPlural(document.words);
     }
 
+
+    //  1) DEBO REORGANIZAR EL CODIGO AQUI DEBAJO PARA QUE INCLUYA LAS DEMAS PROMESAS PARA LAS
+    //     RADUCCIONES, SINONIMOS, ANTONIMOS Y EJEMPLOS TIPADOS.
+    //  2) LUEGO GUARDAR TODAS LAS PROMESAS CORRESPONDIENTES A UN TIPO DETERMINADO EN UN ARRAY DE
+    //     PROMESAS.
+    //  3) CREAR TANTOS ARRAY DE PROMESAS COMO TIPOS GRAMATICALES HAYA
+    //  4) Y POR ULTIMO, SABIENDO QUE LA LONGITUD ES IGUAL PARA CADA UNO DE ESTOS ARRAYS, UTILIZAR
+    //     ESTE HECHO A TU FAVOR LUEGO EN EL Promise.all()
+
+
+    //  0) NO, ME HE EQUIVOCADO, LO QUE DEBO HACER ES ENCONTRAR UN MÉTODO DE PEDIRLE A GPT3 UNA MEZCLA
+    //     CON VARIOS TYPES A LA VEZ EN EL TEXTO DE CADA PROMESA Y LUEGO PROCESARLO CON REGEX.
+    // .....
+    
+
     //  GPT3 generates meanings corresponding to each gramatical type your word has
     document.types.forEach(async (type) => {
         let n = "1", s = "";
@@ -202,19 +223,6 @@ export async function populate(document) {
         });
         promises.push(meanings);
     });
-
-    //  1) DEBO REORGANIZAR EL CODIGO AQUI DEBAJO PARA QUE INCLUYA LAS DEMAS PROMESAS PARA LAS
-    //     RADUCCIONES, SINONIMOS, ANTONIMOS Y EJEMPLOS TIPADOS.
-    //  2) LUEGO GUARDAR TODAS LAS PROMESAS CORRESPONDIENTES A UN TIPO DETERMINADO EN UN ARRAY DE
-    //     PROMESAS.
-    //  3) CREAR TANTOS ARRAY DE PROMESAS COMO TIPOS GRAMATICALES HAYA
-    //  4) Y POR ULTIMO, SABIENDO QUE LA LONGITUD ES IGUAL PARA CADA UNO DE ESTOS ARRAYS, UTILIZAR
-    //     ESTE HECHO A TU FAVOR LUEGO EN EL Promise.all()
-
-
-    //  0) NO, ME HE EQUIVOCADO, LO QUE DEBO HACER ES ENCONTRAR UN MÉTODO DE PEDIRLE A GPT3 UNA MEZCLA
-    //     CON VARIOS TYPES A LA VEZ EN EL TEXTO DE CADA PROMESA Y LUEGO PROCESARLO CON REGEX.
-    // .....
 
     //  GPT3 creates a response with 5 spanish translations for your word
     const translations = openai.createCompletion("text-davinci-002", 
@@ -273,88 +281,9 @@ export async function populate(document) {
             }
         });
 
-
-        //  POR HACER:  OPTIMIZAR EL CODIGO DE AQUI ABAJO
-
         //  Convert the translations response text to an array
         const translations_txt = results[l+1].data.choices[0].text;
         let translations = cleanArray(translations_txt.split(/\d. /gm));
-        translations.forEach(translation => {
-            if (/\(.*idiom.*\)|\(.*expression.*\)/gmi.test(translation) ) {
-                let variety = varieties.find(v => {
-                    v.type = "idiom";
-                });
-                let index = varieties.indexOf(variety);
-                variety['translations'].push(translation);
-                varieties[index] = variety;
-            }
-            else if (/\(.*verb.*\)/gmi.test(translation)) {
-                let variety = varieties.find(v => {
-                    v.type = "verb";
-                });
-                let index = varieties.indexOf(variety);
-                variety.translations.push(translation);
-                varieties[index] = variety;
-            } 
-            else if (/\(.*noun.*\)/gmi.test(translation)) {
-                let variety = varieties.find(v => {
-                    v.type = "noun";
-                });
-                let index = varieties.indexOf(variety);
-                variety.translations.push(translation);
-                varieties[index] = variety;
-            }
-            else if (/\(.*adjective.*\)/gmi.test(translation)) {
-                let variety = varieties.find(v => {
-                    v.type = "adjective";
-                });
-                let index = varieties.indexOf(variety);
-                variety.translations.push(translation);
-                varieties[index] = variety;
-            }
-            else if (/\(.*adverb.*\)/gmi.test(translation)) {
-                let variety = varieties.find(v => {
-                    v.type = "adverb";
-                });
-                let index = varieties.indexOf(variety);
-                variety.translations.push(translation);
-                varieties[index] = variety;
-            }
-            else if (/\(.*pronoun.*\)/gmi.test(translation)) {
-                let variety = varieties.find(v => {
-                    v.type = "pronoun";
-                });
-                let index = varieties.indexOf(variety);
-                variety.translations.push(translation);
-                varieties[index] = variety;
-            }
-            else if (/\(.*preposition.*\)/gmi.test(translation)) {
-                let variety = varieties.find(v => {
-                    v.type = "preposition";
-                });
-                let index = varieties.indexOf(variety);
-                variety.translations.push(translation);
-                varieties[index] = variety;
-            }
-            else if (/\(.*conjuction.*\)/gmi.test(translation)) {
-                let variety = varieties.find(v => {
-                    v.type = "preposition";
-                });
-                let index = varieties.indexOf(variety);
-                variety.translations.push(translation);
-                varieties[index] = variety;
-            }
-            else if (/\(.*interjection.*\)/gmi.test(translation)) {
-                let variety = varieties.find(v => {
-                    v.type = "interjection";
-                });
-                let index = varieties.indexOf(variety);
-                variety.translations.push(translation);
-                varieties[index] = variety;
-            }
-        });
-
-
         //  Convert the synonyms response text to an array
         const synonyms_txt = results[l+2].data.choices[0].text;
         let synonyms = cleanArray(synonyms_txt.split(/\d.|, /gm));
@@ -369,44 +298,50 @@ export async function populate(document) {
             examples[i] = example;
         });
 
-        //  POR HACER --> Completa este código (es la optimizacion que pedías mas arriba)
+        //  POR HACER: Complete this code (apart from translations, the rest of 
+        //  elements have no type yet, change the requests you make to OpenAI)
         document.types.forEach(type => {
-            translations.forEach(translation => {
-
-            });
+            const translationsOfType = sortByType(translations, type);
+            varieties.store(translationsOfType, type, "translations");
+            const synonymsOfType = sortByType(translations, type);
+            varieties.store(synonymsOfType, type, "synonyms");
+            const antonymsOfType = sortByType(translations, type);
+            varieties.store(antonymsOfType, type, "synonyms");
+            const examplesOfType = sortByType(translations, type);
+            varieties.store(examplesOfType, type, "synonyms");
         });
     });
 }
 
 
-//  Sorts out all the possible syntactic types for a given word
-export async function sortTypes(words) {
+//  Finds all the possible syntactic types for a given word
+export async function findTypes(words) {
     let types = [];
     let promises = [];
     let wordCount = words.split(/\s/gm).length;
 
 
     //  GPT3 checks wether your word or phrase is a noun
-    promises.push(isType("noun"));
+    promises.push(isType(words, "noun"));
     types.push("noun");
     //  GPT3 checks wether your word or phrase is a verb
-    promises.push(isType("verb"));
+    promises.push(isType(words, "verb"));
     types.push("verb");
 
 
     //  One-Words only
     if (wordCount === 1) {
         //  GPT3 checks wether your word is an adjective
-        promises.push(isType("adjective"));
+        promises.push(isType(words, "adjective"));
         types.push("adjective");
         //  GPT3 checks wether your word is an adverb
-        promises.push(isType("adverb"));
+        promises.push(isType(words, "adverb"));
         types.push("adverb");
         //  GPT3 checks wether your word is a pronoun
-        promises.push(isType("pronoun"));
+        promises.push(isType(words, "pronoun"));
         types.push("pronoun");
         //  GPT3 checks wether your word is a preposition
-        promises.push(isType("preposition"));
+        promises.push(isType(words, "preposition"));
         types.push("preposition");
     }
 
@@ -414,7 +349,7 @@ export async function sortTypes(words) {
     //  Phrases only
     if (wordCount > 1) {
         //  GPT3 sorts out wether a group of words is an idiom
-        promises.push(isType("idiom"));
+        promises.push(isType(words, "idiom"));
         types.push("idiom");
     }
 
@@ -435,17 +370,18 @@ export async function sortTypes(words) {
         if (types.length === 0 && wordCount === 1) {
             promises = [];
             //  GPT3 checks wether your word is a conjuction
-            promises.push(isType("conjuction"));
+            promises.push(isType(words, "conjuction"));
             types.push("conjuction");
             //  GPT3 checks wether your word is an interjection
-            promises.push(isType("interjection"));
+            promises.push(isType(words, "interjection"));
             types.push("interjection");
         }
         else if (types.length === 0 && wordCount > 1) {
-            promises = [];
+            //  promises = [];
             //  GPT3 checks wether your phrase is an expression
-            promises.push(isType("expression"));
-            types.push("expression");
+            //  (DANGER: Every phrase is a valid expression for GPT3)
+            //  promises.push(isType(words, "expression"));
+            //  types.push("expression");
         }
         await Promise.all(promises)
         .then(responses => {
@@ -460,9 +396,9 @@ export async function sortTypes(words) {
     return types;
 }
 
-
-export function isType(type) {
-    let to = "", valid = "", n="", notIdiom = "";
+//  Sends a request to OpenAI asking if 
+export function isType(words, type) {
+    let to = "", valid = "", n="";
     if (type === "verb") {
         to = "to";
     }
@@ -476,16 +412,24 @@ export function isType(type) {
 
     return openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Is ${to} "${document.words}" a${n} ${valid} ${type}?:\r\n`
+        prompt: `Is ${to} "${words}" a${n} ${valid} ${type}?:\r\n`
         + "(yes/no)\r\n",
         max_tokens: 5
     });
 }
 
 
-//  POR HACER --> Aqui es donde tienes que escribir el codigo optimizado de populate()
-export function sortVarieties(array, type, ) {
-
+//  Sorts which elements in an array of string elements
+//  contain a certain gramatical type in parenthesis
+export function sortByType(array, type) {
+    const sortedElements = [];
+    const regex = new RegExp(`\(.*${type}.*\)`, "gmi");
+    array.forEach(element => {
+        if (regex.test(element)) {
+            newArray.push(element);
+        } 
+    });
+    return sortedElements;
 }
 
 
