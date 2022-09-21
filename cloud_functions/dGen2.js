@@ -39,7 +39,7 @@ export class WordVariety {
     constructor(type, words) {
         this.type=type;
         this.words=words||"";
-        this.meaning="";
+        this.meanings=[];
         this.translations=[];
         this.synonyms=[];
         this.antonyms=[];
@@ -159,19 +159,10 @@ export async function checkWord(word) {
 
 //  Fills the document object with meanings for the word or phrase
 export async function populate(document) {
+    const promises = [];
     const types_txt = document.types.join(", ");
     const types_count = document.types.length;
-    let varieties = []; 
-    document.types.forEach(type => {
-        let variety = new WordVariety(type, document.words);
-        varieties.push(variety);
-    });
-    varieties.store = function(array, type, field) {
-        const variety = this.find(v => {v.type = type;});
-        const index = this.indexOf(variety);
-        variety[`${field}`].push(...array);
-        this[index] = variety;
-    }
+    const varieties = [];
 
     //  HECHO:          Comprobar si el codigo de generar meanings funciona o no.
     //  HECHO:          En algunos casos el texto de los meanings viene con el type entre parentesis, y además
@@ -193,20 +184,6 @@ export async function populate(document) {
         document.plural = await findPlural(document.words);
     }
 
-
-    //  1) DEBO REORGANIZAR EL CODIGO AQUI DEBAJO PARA QUE INCLUYA LAS DEMAS PROMESAS PARA LAS
-    //     RADUCCIONES, SINONIMOS, ANTONIMOS Y EJEMPLOS TIPADOS.
-    //  2) LUEGO GUARDAR TODAS LAS PROMESAS CORRESPONDIENTES A UN TIPO DETERMINADO EN UN ARRAY DE
-    //     PROMESAS.
-    //  3) CREAR TANTOS ARRAY DE PROMESAS COMO TIPOS GRAMATICALES HAYA
-    //  4) Y POR ULTIMO, SABIENDO QUE LA LONGITUD ES IGUAL PARA CADA UNO DE ESTOS ARRAYS, UTILIZAR
-    //     ESTE HECHO A TU FAVOR LUEGO EN EL Promise.all()
-
-
-    //  0) NO, ME HE EQUIVOCADO, LO QUE DEBO HACER ES ENCONTRAR UN MÉTODO DE PEDIRLE A GPT3 UNA MEZCLA
-    //     CON VARIOS TYPES A LA VEZ EN EL TEXTO DE CADA PROMESA Y LUEGO PROCESARLO CON REGEX.
-    // .....
-    
 
     //  GPT3 generates meanings corresponding to each gramatical type your word has
     document.types.forEach(async (type) => {
@@ -231,7 +208,7 @@ export async function populate(document) {
             + ` along with their gramatical types in parentheses:\r\n`
             +`(must use all of these: ${types_txt})\r\n1. `,
         temperature: 0.8,
-        presence_penalty: 1.8,
+        presence_penalty: 0.5,
         max_tokens: 200
     });
     promises.push(translations);
@@ -267,6 +244,10 @@ export async function populate(document) {
     //  This executes all the above promises asynchronously so they complete in parallel
     await Promise.all([...promises])
     .then((results) => {
+        
+        //  POR HACER: Merge this code with the code at the end of this method, so as to have
+        //  everything in the same variety before pushing it into the varieties array.
+
         //  Convert the meanings response text to an array
         let l = document.types.length - 1;
         results.forEach((_, i) => {
@@ -275,8 +256,9 @@ export async function populate(document) {
                 const meanings_txt = results[i].data.choices[0].text;
                 let meanings = cleanArray(meanings_txt.split(/\d./gm));
                 meanings.forEach(meaning => {
-                    let wordType = new WordVariety(type, meaning);
-                    document.types.push(wordType);
+                    let variety = new WordVariety(type, document.words);
+                    variety.meanings = meanings;
+                    varieties.push(variety);
                 }); 
             }
         });
@@ -301,15 +283,15 @@ export async function populate(document) {
         //  POR HACER: Complete this code (apart from translations, the rest of 
         //  elements have no type yet, change the requests you make to OpenAI)
         document.types.forEach(type => {
-            const translationsOfType = sortByType(translations, type);
-            varieties.store(translationsOfType, type, "translations");
-            const synonymsOfType = sortByType(translations, type);
-            varieties.store(synonymsOfType, type, "synonyms");
-            const antonymsOfType = sortByType(translations, type);
-            varieties.store(antonymsOfType, type, "synonyms");
-            const examplesOfType = sortByType(translations, type);
-            varieties.store(examplesOfType, type, "synonyms");
+            let variety = new WordVariety(type, document.words);
+            variety.translations.push(...sortByType(translations, type));
+            variety.synonyms.push(...sortByType(synonyms, type));
+            variety.antonyms.push(...sortByType(antonyms, type));
+            variety.examples.push(...sortByType(examples, type));
+            varieties.push(variety);
         });
+    
+        document.varieties = varieties;
     });
 }
 
@@ -423,10 +405,13 @@ export function isType(words, type) {
 //  contain a certain gramatical type in parenthesis
 export function sortByType(array, type) {
     const sortedElements = [];
-    const regex = new RegExp(`\(.*${type}.*\)`, "gmi");
+    const regex = new RegExp(`\(.*${type}.*\):?`, "gmi");
     array.forEach(element => {
         if (regex.test(element)) {
-            newArray.push(element);
+            //  POR HACER: Este reemplazo puede no bastar, ya que puede haber contenido
+            //             tanto a la izquierda como a la derecha del paréntesis.
+            element = element.replace(regex, "");
+            sortedElements.push(element);
         } 
     });
     return sortedElements;
@@ -436,22 +421,20 @@ export function sortByType(array, type) {
 //  Uses regexes to clean any given text coming
 //  either from a user request or an OpenAI response
 export function cleanText(words) {
-    // --------  ORIGINAL CODE OF cleanText()  ---------
     //  Fuse a multiline string into a single line
-    words = words.replace(/(\r?\n)+|\r+|\n+|\t+/gm, " ");
+    words = words.replace(/(\r?\n)+|\r+|\n+|\t+/gmi, " ");
     //  Eliminate all duplicate consecutive words except one
-    words = words.replace(/\b(\w+)(?=\W\1\b)+\W?/gm, "");
+    words = words.replace(/\b(\w+)(?=\W\1\b)+\W?/gmi, "");
 
-
-    // --------  FORMER CODE OF cleanArray()  ----------
     //  Get rid of some non-word characters & 'and' at beginning of text
     words = words.replace(/[^\w\s\'\,(áéíóúñ)]|\d|^(\s?and\s)/gmi, '');
     //  Get rid of strange tags or equal signs
-    words = words.replace(/\<([^\>]*)\>|([\s\S]*)\=/gm, '');
+    words = words.replace(/\<([^\>]*)\>|([\s\S]*)\=/gmi, '');
     //  Trim and lowercase the text
     words = words.trim().toLowerCase();
     //  Get rid of spanish pronouns
-    words = words.replace(/^el |^las? |^los |^una?/gmi, '');
+    words = words.replace(/^el(l?a?o?s?) |^l(a?e?o?)s? |^(m|t)e /gmi, '')
+        .replace(/^n?os |^una? |mi |tu |su |(nue|vue)str(a|o)/gmi, '');
     return words;
 }
 
