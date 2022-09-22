@@ -208,26 +208,29 @@ export async function populate(document) {
             + ` along with their gramatical types in parentheses:\r\n`
             +`(must use all of these: ${types_txt})\r\n1. `,
         temperature: 0.8,
-        presence_penalty: 0.5,
+        presence_penalty: 2.0,
         max_tokens: 200
     });
     promises.push(translations);
 
-    //  GPT3 creates a response with 10 synonyms for your word
+    //  GPT3 creates a response with 3 synonyms for each gramatical type of your word
     const synonyms = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Write 5 synonyms for "${document.words}":\r\n`,
-        temperature: 0.9,
+        prompt: `Write 3 synonyms for "${document.words}", `
+            + `for each of these gramatical types: ${types_txt}\r\n`,
+        temperature: 0.8,
+        presence_penalty: 2.0,
         max_tokens: 200
     });
     promises.push(synonyms);
 
-    //  GPT3 creates a response with 10 antonyms for your word
+    //  GPT3 creates a response with 3 antonyms for each gramatical type of your word
     const antonyms = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `What would be the opposite of "${document.words}"?`
-        + `(just write 3 words or verbs that mean the contrary to "${document.words}")`,
-        temperature: 0.7,
+        prompt: `Write 3 antonyms for "${document.words}", `
+            + `for each of these gramatical types: ${types_txt}\r\n`,
+        temperature: 0.8,
+        presence_penalty: 2.0,
         max_tokens: 200
     });
     promises.push(antonyms);
@@ -263,18 +266,42 @@ export async function populate(document) {
             }
         });
 
+
+        //  POR HACER: In order to create an array with the appropiate structure, 
+        //  instead of separating the text by number digits as in a list, I need
+        //  to separate first the segments of text between two types.
+        //  How do I do this?
+        
+        //  SOLUTION: See the document "casuistica regex resultados dGen2.odt" on
+        //  your desktop, in there the second problem is this, and you have written 
+        //  the solution: 
+
+        //  0)  Text of OpenAI comes as one line, so don't sweat, you don't need to first fuse multiline into a single line.
+        //  1)  Use whatever_txt.split(/((pro)?noun|(ad)?verb|adjective|idiom|preposition|conjuction|interjection)/gmi)
+        //      but you must use it with positive lookaheads as indicated at: 
+        //      https://www.wisdomgeek.com/development/web-development/javascript/javascript-split-string-and-keep-the-separators/
+        //      (engine search key words: "javascript split keep separators")
+        //  2)  Once split() has done its job, you will have both the text and separators in an array, in order of appearance.
+        //  3)  Fuse the elements of the array in pairs of two, then add those into a new array.
+        //  4)  The new array will have the results you want, now you only have to clean it by using cleanArray()
+        //       and sort it by using sortByType().
+
         //  Convert the translations response text to an array
         const translations_txt = results[l+1].data.choices[0].text;
-        let translations = cleanArray(translations_txt.split(/\d. /gm));
+        //  let translations = cleanArray(translations_txt.split(/\d.|, /gm));
+        
         //  Convert the synonyms response text to an array
         const synonyms_txt = results[l+2].data.choices[0].text;
-        let synonyms = cleanArray(synonyms_txt.split(/\d.|, /gm));
+        //  let synonyms = cleanArray(synonyms_txt.split(/\d.|, /gm));
+
         //  Convert the antonyms response text to an array
         const antonyms_txt = results[l+3].data.choices[0].text;
-        let antonyms = cleanArray(antonyms_txt.split(/\d.|, /gm));
+        //  let antonyms = cleanArray(antonyms_txt.split(/\d.|, /gm));
+
         //  Convert the examples response text to an array
         const examples_txt = results[l+4].data.choices[0].text;
-        let examples = cleanArray(examples_txt.split(/\d./gm));
+        //  let examples = cleanArray(examples_txt.split(/\d./gm));
+
         examples.forEach((example,i) => {
             example = example.charAt(0).toUpperCase() + `${example.slice(1)}.`;
             examples[i] = example;
@@ -283,9 +310,13 @@ export async function populate(document) {
         //  POR HACER: Complete this code (apart from translations, the rest of 
         //  elements have no type yet, change the requests you make to OpenAI)
         document.types.forEach(type => {
+            //  let separatorRegex = new RegExp(`.*${type}.*`, "gmi");
             let variety = new WordVariety(type, document.words);
             variety.translations.push(...sortByType(translations, type));
+
+            //  let synonyms = cleanArray(synonyms_txt.split(separatorRegex))
             variety.synonyms.push(...sortByType(synonyms, type));
+
             variety.antonyms.push(...sortByType(antonyms, type));
             variety.examples.push(...sortByType(examples, type));
             varieties.push(variety);
@@ -405,12 +436,13 @@ export function isType(words, type) {
 //  contain a certain gramatical type in parenthesis
 export function sortByType(array, type) {
     const sortedElements = [];
-    const regex = new RegExp(`\(.*${type}.*\):?`, "gmi");
+    const regex = new RegExp(`.*${type}.*`, "gmi");
+    const eraseRegex = new RegExp(`\s?\(.*${type}.*\)\s?|^.*${type}.*:\s?`, "gmi");
     array.forEach(element => {
         if (regex.test(element)) {
-            //  POR HACER: Este reemplazo puede no bastar, ya que puede haber contenido
-            //             tanto a la izquierda como a la derecha del paréntesis.
-            element = element.replace(regex, "");
+            //  POR HACER: Este reemplazo puede no bastar, ya que puede haber
+            //  contenido tanto a la izquierda como a la derecha del paréntesis.
+            element = element.replace(eraseRegex, "");
             sortedElements.push(element);
         } 
     });
@@ -432,9 +464,10 @@ export function cleanText(words) {
     words = words.replace(/\<([^\>]*)\>|([\s\S]*)\=/gmi, '');
     //  Trim and lowercase the text
     words = words.trim().toLowerCase();
-    //  Get rid of spanish pronouns
-    words = words.replace(/^el(l?a?o?s?) |^l(a?e?o?)s? |^(m|t)e /gmi, '')
-        .replace(/^n?os |^una? |mi |tu |su |(nue|vue)str(a|o)/gmi, '');
+    //  Get rid of Spanish unnecessary stuffing
+    words = words.replace(/^a /gmi, '')
+        .replace(/^el(l?a?o?s?) |^l(a?e?o?)s? |^(m|t)(e|i) /gmi, '')
+        .replace(/^n?os |^una? |^(t|s)(u|e) |^(nue|vue)str(a|o) /gmi, '');
     return words;
 }
 
