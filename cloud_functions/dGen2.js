@@ -191,18 +191,18 @@ export async function populate(document) {
         if (type === "noun" || type === "verb") {
             n = "2", s = "s";
         }
-        const meanings = openai.createCompletion("text-davinci-002", 
+        const meaningsPromise = openai.createCompletion("text-davinci-002", 
         {
             prompt: `Write "${n}" common meaning"${s}" for "${document.words}" as "${type}"\r\n`
             + `(no examples)\r\n1. `,
             temperature: 0.7,
             max_tokens: 200
         });
-        promises.push(meanings);
+        promises.push(meaningsPromise);
     });
 
     //  GPT3 creates a response with 5 spanish translations for your word
-    const translations = openai.createCompletion("text-davinci-002", 
+    const translationsPromise = openai.createCompletion("text-davinci-002", 
     {
         prompt: `Write ${types_count*2} translations for "${document.words}" in Spanish,`
             + ` along with their gramatical types in parentheses:\r\n`
@@ -211,10 +211,10 @@ export async function populate(document) {
         presence_penalty: 2.0,
         max_tokens: 200
     });
-    promises.push(translations);
+    promises.push(translationsPromise);
 
     //  GPT3 creates a response with 3 synonyms for each gramatical type of your word
-    const synonyms = openai.createCompletion("text-davinci-002", 
+    const synonymsPromise = openai.createCompletion("text-davinci-002", 
     {
         prompt: `Write 3 synonyms for "${document.words}", `
             + `for each of these gramatical types: ${types_txt}\r\n`,
@@ -222,10 +222,10 @@ export async function populate(document) {
         presence_penalty: 2.0,
         max_tokens: 200
     });
-    promises.push(synonyms);
+    promises.push(synonymsPromise);
 
     //  GPT3 creates a response with 3 antonyms for each gramatical type of your word
-    const antonyms = openai.createCompletion("text-davinci-002", 
+    const antonymsPromise = openai.createCompletion("text-davinci-002", 
     {
         prompt: `Write 3 antonyms for "${document.words}", `
             + `for each of these gramatical types: ${types_txt}\r\n`,
@@ -233,16 +233,16 @@ export async function populate(document) {
         presence_penalty: 2.0,
         max_tokens: 200
     });
-    promises.push(antonyms);
+    promises.push(antonymsPromise);
 
     //  GPT3 creates a response with 3 phrase examples for your word
-    const examples = openai.createCompletion("text-davinci-002", 
+    const examplesPromise = openai.createCompletion("text-davinci-002", 
     {
         prompt: `Write 3 phrases with "${document.words}":\r\n1.`,
         temperature: 0.9,
         max_tokens: 200
     });
-    promises.push(examples);
+    promises.push(examplesPromise);
 
     //  This executes all the above promises asynchronously so they complete in parallel
     await Promise.all([...promises])
@@ -266,43 +266,24 @@ export async function populate(document) {
             }
         });
 
-
-        //  POR HACER: In order to create an array with the appropiate structure, 
-        //  instead of separating the text by number digits as in a list, I need
-        //  to separate first the segments of text between two types.
-        //  How do I do this?
-        
-        //  SOLUTION: See the document "casuistica regex resultados dGen2.odt" on
-        //  your desktop, in there the second problem is this, and you have written 
-        //  the solution: 
-
-        //  0)  Text of OpenAI comes as one line, so don't sweat, you don't need to first fuse multiline into a single line.
-        //  1)  Use whatever_txt.split(/((pro)?noun|(ad)?verb|adjective|idiom|preposition|conjuction|interjection)/gmi)
-        //      but you must use it with positive lookaheads as indicated at: 
-        //      https://www.wisdomgeek.com/development/web-development/javascript/javascript-split-string-and-keep-the-separators/
-        //      (engine search key words: "javascript split keep separators")
-        //  2)  Once split() has done its job, you will have both the text and separators in an array, in order of appearance.
-        //  3)  Fuse the elements of the array in pairs of two, then add those into a new array.
-        //  4)  The new array will have the results you want, now you only have to clean it by using cleanArray()
-        //       and sort it by using sortByType().
-
         //  Convert the translations response text to an array
         const translations_txt = results[l+1].data.choices[0].text;
+        const translations = splitByTypes(translations_txt);
         //  let translations = cleanArray(translations_txt.split(/\d.|, /gm));
         
         //  Convert the synonyms response text to an array
         const synonyms_txt = results[l+2].data.choices[0].text;
-        //  let synonyms = cleanArray(synonyms_txt.split(/\d.|, /gm));
+        const synonyms = splitByTypes(synonyms_txt);
 
         //  Convert the antonyms response text to an array
         const antonyms_txt = results[l+3].data.choices[0].text;
-        //  let antonyms = cleanArray(antonyms_txt.split(/\d.|, /gm));
+        const antonyms = splitByTypes(antonyms_txt);
 
         //  Convert the examples response text to an array
         const examples_txt = results[l+4].data.choices[0].text;
-        //  let examples = cleanArray(examples_txt.split(/\d./gm));
-
+        const examples = splitByTypes(examples_txt);
         examples.forEach((example,i) => {
+            //  This code below is regex pruning specific to example responses
             example = example.charAt(0).toUpperCase() + `${example.slice(1)}.`;
             examples[i] = example;
         });
@@ -310,13 +291,9 @@ export async function populate(document) {
         //  POR HACER: Complete this code (apart from translations, the rest of 
         //  elements have no type yet, change the requests you make to OpenAI)
         document.types.forEach(type => {
-            //  let separatorRegex = new RegExp(`.*${type}.*`, "gmi");
             let variety = new WordVariety(type, document.words);
             variety.translations.push(...sortByType(translations, type));
-
-            //  let synonyms = cleanArray(synonyms_txt.split(separatorRegex))
             variety.synonyms.push(...sortByType(synonyms, type));
-
             variety.antonyms.push(...sortByType(antonyms, type));
             variety.examples.push(...sortByType(examples, type));
             varieties.push(variety);
@@ -432,21 +409,50 @@ export function isType(words, type) {
 }
 
 
+//  Makes an array of gramatically typed word information 
+//  elements from the response text coming from GPT3 (the word
+//  information could be whatever: translations, synonyms, etc...)
+export function splitByType(text) {
+    const typesRegex = "(pro)?noun|(ad)?verb|adjective|idiom|preposition|(conju|interje)ction";
+    const splitRegex = `/((\(.*)?(${typesRegex})(.*\))?)|((.*)(${typesRegex})(.*\)?)?\:)/gmi`;
+
+    //  Array with content and types split apart 
+    //  (Explanation: The method split() captures both the information between separators and
+    //   also the separators themselves if you wrap the regex expression up in capture group
+    //   parentheses, like this: /(regex_expression)/ ...even more, split() creates an array
+    //   in which its elements appear in the same order as the original text occurrences)
+    let array = cleanArray(text.split(splitRegex));
+
+    //  Code to merge the content with its corresponding type
+    array.forEach((element, index) => {
+        if (index < array.length-1 && index%2 === 0) {
+            let type = element[index+1].match(typesRegex)[0];
+            //  With the method splice we both remove the content and separator (type) elements from the
+            //  array, to then merge them back together into one same element and push that into the array.
+            //  (This will become useful once we sort all the word contents by type ahead)
+            array.splice(index, 2, `${element} (${type})`);
+        }
+    });
+    return array;
+}
+
+
 //  Sorts which elements in an array of string elements
 //  contain a certain gramatical type in parenthesis
 export function sortByType(array, type) {
-    const sortedElements = [];
-    const regex = new RegExp(`.*${type}.*`, "gmi");
-    const eraseRegex = new RegExp(`\s?\(.*${type}.*\)\s?|^.*${type}.*:\s?`, "gmi");
+    const array = [];
+    const regex = new RegExp(`(${type})`, "gmi");
+    //  POR HACER: Borra este comentario si ves que este metodo funciona bien
+    //  const eraseRegex = new RegExp(`\s?\(.*${type}.*\)\s?|^.*${type}.*:\s?`, "gmi");
     array.forEach(element => {
         if (regex.test(element)) {
             //  POR HACER: Este reemplazo puede no bastar, ya que puede haber
             //  contenido tanto a la izquierda como a la derecha del paréntesis.
-            element = element.replace(eraseRegex, "");
-            sortedElements.push(element);
+            element = element.replace(regex, "");
+            array.push(element);
         } 
     });
-    return sortedElements;
+    return array;
 }
 
 
@@ -457,7 +463,6 @@ export function cleanText(words) {
     words = words.replace(/(\r?\n)+|\r+|\n+|\t+/gmi, " ");
     //  Eliminate all duplicate consecutive words except one
     words = words.replace(/\b(\w+)(?=\W\1\b)+\W?/gmi, "");
-
     //  Get rid of some non-word characters & 'and' at beginning of text
     words = words.replace(/[^\w\s\'\,(áéíóúñ)]|\d|^(\s?and\s)/gmi, '');
     //  Get rid of strange tags or equal signs
