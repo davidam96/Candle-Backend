@@ -172,11 +172,14 @@ export async function populate(document) {
     //  HECHO:          ¿Se pueden ejecutar las promesas que traen estos meanings en paralelo en vez de en serie?
     //                  Sí --> Promise.all() preserva el orden de las responses según el orden de las promesas.
     //  HECHO:          En algunos casos el texto de los meanings viene en blanco. (Solo ocurre en modo debug)
+    //  HECHO:          Creado un metodo especifico para separar un texto en un array ordenando sus elementos
+    //                  mediante tipos gramaticales, ver 'splitByType()'
     //  POR HACER:      Unificar frases de ejemplo con los meanings de cada type. Hacerlo también si puede ser con
     //                  las traducciones, que sean específicas a cada type.
     //  POR HACER:      Hacer que GPT3 primero distinga si la palabra viene en plural o en singular,
     //                  y en función del resultado actuar en consecuencia en cada caso.
     //                  (el codigo de abajo y el metodo findPlural() están incompletos)
+
 
 
     //  GPT3 writes the plural of your word
@@ -268,20 +271,20 @@ export async function populate(document) {
 
         //  Convert the translations response text to an array
         const translations_txt = results[l+1].data.choices[0].text;
-        const translations = splitByTypes(translations_txt);
+        const translations = splitByType(translations_txt);
         //  let translations = cleanArray(translations_txt.split(/\d.|, /gm));
         
         //  Convert the synonyms response text to an array
         const synonyms_txt = results[l+2].data.choices[0].text;
-        const synonyms = splitByTypes(synonyms_txt);
+        const synonyms = splitByType(synonyms_txt);
 
         //  Convert the antonyms response text to an array
         const antonyms_txt = results[l+3].data.choices[0].text;
-        const antonyms = splitByTypes(antonyms_txt);
+        const antonyms = splitByType(antonyms_txt);
 
         //  Convert the examples response text to an array
         const examples_txt = results[l+4].data.choices[0].text;
-        const examples = splitByTypes(examples_txt);
+        const examples = splitByType(examples_txt);
         examples.forEach((example,i) => {
             //  This code below is regex pruning specific to example responses
             example = example.charAt(0).toUpperCase() + `${example.slice(1)}.`;
