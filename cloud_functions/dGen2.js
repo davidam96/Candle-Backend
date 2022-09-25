@@ -180,29 +180,12 @@ export async function populate(document) {
     //                  (el codigo de abajo y el metodo findPlural() están incompletos)
 
 
-
     //  GPT3 writes the plural of your word
     if (document.types.includes("noun")) {
         document.plural = await findPlural(document.words);
     }
 
-    //  POR HACER: borra este codigo inservible
-    /*     
-        //  GPT3 generates meanings corresponding to each gramatical type your word has
-        document.types.forEach(async (type) => {
-        let n = "1", s = "";
-        if (type === "noun" || type === "verb") {
-            n = "2", s = "s";
-        }
-        const meaningsPromise = openai.createCompletion("text-davinci-002", 
-        {
-            prompt: `Write "${n}" common meaning"${s}" for "${document.words}" as "${type}"\r\n`
-            + `(no examples)\r\n1. `,
-            temperature: 0.7,
-            max_tokens: 200
-        });
-        promises.push(meaningsPromise);
-    }); */
+
 
     //  GPT3 generates meanings corresponding to each gramatical type your word has
     const meaningsPromise = openai.createCompletion("text-davinci-002", 
@@ -264,56 +247,33 @@ export async function populate(document) {
     //  This executes all the above promises asynchronously so they complete in parallel
     await Promise.all([...promises])
     .then((results) => {
-        
-        let l = 0;
-
-        //  POR HACER: borra este codigo inservible
-        //  Convert the meanings response text to an array
-/*         let l = document.types.length - 1;
-        results.forEach((_, i) => {
-            if (i <= l) {
-                let type = document.types[i];
-                const meanings_txt = results[i].data.choices[0].text;
-                let meanings = cleanArray(meanings_txt.split(/\d./gm));
-                meanings.forEach(meaning => {
-                    let variety = new WordVariety(type, document.words);
-                    variety.meanings = meanings;
-                    varieties.push(variety);
-                }); 
-            }
-        }); */
 
         //  Convert the meanings response text to an array
-        const meanings_txt = results[l].data.choices[0].text;
+        const meanings_txt = results[0].data.choices[0].text;
         const meanings = splitByType(meanings_txt);
 
         //  Convert the translations response text to an array
-        const translations_txt = results[l+1].data.choices[0].text;
+        const translations_txt = results[1].data.choices[0].text;
         const translations = splitByType(translations_txt);
-        //  let translations = cleanArray(translations_txt.split(/\d|, /gm));
         
         //  Convert the synonyms response text to an array
-        const synonyms_txt = results[l+2].data.choices[0].text;
+        const synonyms_txt = results[2].data.choices[0].text;
         const synonyms = splitByType(synonyms_txt);
 
         //  Convert the antonyms response text to an array
-        const antonyms_txt = results[l+3].data.choices[0].text;
+        const antonyms_txt = results[3].data.choices[0].text;
         const antonyms = splitByType(antonyms_txt);
 
         //  Convert the examples response text to an array
-        const examples_txt = results[l+4].data.choices[0].text;
+        const examples_txt = results[4].data.choices[0].text;
         const examples = splitByType(examples_txt);
-
-        //  POR HACER: Parece ser que este codigo falla, examples esta vacio. 
-        //             Averiguar por qué.
+        //  POR HACER: Parece ser que este codigo falla, examples esta vacio. Averiguar por qué.
 /*         examples.forEach((example,i) => {
             //  This code below is regex pruning specific to example responses
             example = example.charAt(0).toUpperCase() + `${example.slice(1)}.`;
             examples[i] = example;
         }); */
 
-        //  POR HACER: Complete this code (apart from translations, the rest of 
-        //  elements have no type yet, change the requests you make to OpenAI)
         document.types.forEach(type => {
             let variety = new WordVariety(type, document.words);
             variety.meanings.push(...sortByType(meanings, type));
@@ -335,14 +295,12 @@ export async function findTypes(words) {
     let promises = [];
     let wordCount = words.split(/\s/gm).length;
 
-
     //  GPT3 checks wether your word or phrase is a noun
     promises.push(isType(words, "noun"));
     types.push("noun");
     //  GPT3 checks wether your word or phrase is a verb
     promises.push(isType(words, "verb"));
     types.push("verb");
-
 
     //  One-Words only
     if (wordCount === 1) {
@@ -360,14 +318,12 @@ export async function findTypes(words) {
         types.push("preposition");
     }
 
-
     //  Phrases only
     if (wordCount > 1) {
         //  GPT3 sorts out wether a group of words is an idiom
         promises.push(isType(words, "idiom"));
         types.push("idiom");
     }
-
 
     await Promise.all(promises)
     .then(async(responses) => {
@@ -439,42 +395,47 @@ export function isType(words, type) {
 //  elements from the response text coming from GPT3 (the word
 //  information could be whatever: translations, synonyms, etc...)
 export function splitByType(text) {
-    const typesRegex = "noun|verb|adjective|adverb|pronoun|preposition|conjuction|interjection|idiom";
-    const splitRegex = new RegExp(`\\(?(${typesRegex})\\)?\\:?`, "gmi");
-    //  POR HACER: Borra esta linea, es el regex antiguo, el cual es inservible, porque
-    //             las responses de GPT3 vienen en una unica linea en vez de en varias
-    //  const splitRegex = `/((\(.*)?(${typesRegex})(.*\))?)|((.*)(${typesRegex})(.*\)?)?\:)/gmi`;
-
-    //  HECHO: Utilizar cleanArray aqui parece dar problemas luego con el merger de mas abajo
-    //              Solucion: Dichos problemas no aparecen mientras mantengas el literal 'typesRegex' 
-    //                        tal cual está, sin parentesis ninguno.
+    const types = "noun|verb|adjective|adverb|pronoun|preposition|conjuction|interjection|idiom";
+    const typesRegex = new RegExp(`${types}`, "gmi")
+    const splitRegex = new RegExp(`\\(?(${types})\\)?\\:?`, "gmi");
+    let merger = [];
 
     //  Array with content and types split apart 
     //  (Explanation: The method split() captures both the information between separators and
     //   also the separators themselves if you wrap the regex expression up in capture group
-    //   parentheses, like this: /(regex_expression)/ ...even more, split() creates an array
+    //   parentheses, like this: /(regex_whatever)/ ...even more, split() creates an array
     //   in which its elements appear in the same order as the original text occurrences)
     let array = cleanArray(text.split(splitRegex));
-    //  let array = cleanArray(text.split(splitRegex));
 
     //  Code to merge the content with its corresponding type
-    array.forEach((element, index) => {
-        if (index < array.length-1 && index%2 === 0) {
-            //  We find the closest separator element using a ternary operator
-            let type = (splitRegex.test(element) ? element[index] : array[index+1]);
+    array.forEach((element, i) => {
+        if (i < array.length-1 && i%2 === 0) {
+            let index = i+1;
+            let currentElement = element;
+            let currentElement2 = array[i];
+            let nextElement = array[i+1];
+            //  We find both which element has the contents and which element is the separator
+            //  using a ternary operator where the condition is testing if the array elements
+            //  match a regex pattern looking for the gramatical types' words
+            let type = (typesRegex.test(element) ? element : array[i+1]);
+            let what = array.indexOf(type);
+            let the = array.indexOf(type)%2;
+            let fuck = array.indexOf(type)%2 === 0;
+            //  let content = (splitRegex.test(element) ? array[i+1] : element);
+            let content = (array.indexOf(type)%2 === 0 ? array[i+1] : element);
 
-            //  With the method splice we both remove the content and separator (type) elements from the
-            //  array, to then merge them back together into one same element and push that into the array.
-            //  (This will become useful once we sort all the word contents by type ahead)
-            array.splice(index, 2, `${element} (${type})`);
+
+            //  Then we store the merged content into another array
+            merger.push(`${content} (${type})`);
 
             //  POR HACER:  Todavía te queda por hacer un split mas, en caso de que los elementos de cada
             //              type aparezcan en una lista tipo: "1. asdasd 2. odninbif 3. isnfiafn" o bien
             //              vengan varios elementos separados por coma, debes sacarlos individualmente.
+            //              IMPORTANTE: Utilizar como separador el siguiente regex: /\W*\d\W*|\s{2}|\,\s/gmi
             //  ......
         }
     });
-    return array;
+    return merger;
 }
 
 
@@ -517,11 +478,11 @@ export function cleanArray(array) {
 //  either from a user request or an OpenAI response
 export function cleanText(words) {
     //  Fuse a multiline string into a single line
-    words = words.replace(/(\r?\n)+|\r+|\n+|\t+/gmi, " ");
+    words = words.replace(/(\r?\n)+|\r+|\n+|\t+/gmi, "  ");
     //  Eliminate all duplicate consecutive words except one
     words = words.replace(/\b(\w+)(?=\W\1\b)+\W?/gmi, "");
     //  Get rid of some non-word characters & 'and' at beginning of text
-    words = words.replace(/[^\w\s\'\,(áéíóúñ)]|\d|^(\s?and\s)/gmi, '');
+    words = words.replace(/[^\w\s\'\,(áéíóúñ)]|^\s?and\s/gmi, '');
     //  Get rid of strange tags or equal signs
     words = words.replace(/\<([^\>]*)\>|([\s\S]*)\=/gmi, '');
     //  Trim and lowercase the text
