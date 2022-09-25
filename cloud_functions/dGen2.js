@@ -161,7 +161,6 @@ export async function checkWord(word) {
 export async function populate(document) {
     const promises = [];
     const types_txt = document.types.join(", ");
-    const types_count = document.types.length;
     const varieties = [];
 
     //  HECHO:          Comprobar si el codigo de generar meanings funciona o no.
@@ -187,9 +186,10 @@ export async function populate(document) {
         document.plural = await findPlural(document.words);
     }
 
-
-    //  GPT3 generates meanings corresponding to each gramatical type your word has
-    document.types.forEach(async (type) => {
+    //  POR HACER: borra este codigo inservible
+    /*     
+        //  GPT3 generates meanings corresponding to each gramatical type your word has
+        document.types.forEach(async (type) => {
         let n = "1", s = "";
         if (type === "noun" || type === "verb") {
             n = "2", s = "s";
@@ -202,16 +202,26 @@ export async function populate(document) {
             max_tokens: 200
         });
         promises.push(meaningsPromise);
+    }); */
+
+    //  GPT3 generates meanings corresponding to each gramatical type your word has
+    const meaningsPromise = openai.createCompletion("text-davinci-002", 
+    {
+        prompt: `Write the 2 most common meanings for "${document.words}", `
+            + `for each of these gramatical types: ${types_txt}\r\n`
+            + "(each gramatical type must appear below)",
+        temperature: 0.85,
+        max_tokens: 200
     });
+    promises.push(meaningsPromise);
 
     //  GPT3 creates a response with 5 spanish translations for your word
     const translationsPromise = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Write ${types_count*2} translations for "${document.words}" in Spanish,`
-            + ` along with their gramatical types in parentheses:\r\n`
-            +`(must use all of these: ${types_txt})\r\n1. `,
-        temperature: 0.8,
-        presence_penalty: 2.0,
+        prompt: `Write 3 translations for "${document.words}", `
+            + `for each of these gramatical types: ${types_txt}\r\n`
+            + "(each gramatical type must appear below)",
+        temperature: 0.85,
         max_tokens: 200
     });
     promises.push(translationsPromise);
@@ -220,7 +230,8 @@ export async function populate(document) {
     const synonymsPromise = openai.createCompletion("text-davinci-002", 
     {
         prompt: `Write 3 synonyms for "${document.words}", `
-            + `for each of these gramatical types: ${types_txt}\r\n`,
+            + `for each of these gramatical types: ${types_txt}\r\n`
+            + "(each gramatical type must appear below)",
         temperature: 0.8,
         presence_penalty: 2.0,
         max_tokens: 200
@@ -231,7 +242,8 @@ export async function populate(document) {
     const antonymsPromise = openai.createCompletion("text-davinci-002", 
     {
         prompt: `Write 3 antonyms for "${document.words}", `
-            + `for each of these gramatical types: ${types_txt}\r\n`,
+            + `for each of these gramatical types: ${types_txt}\r\n`
+            + "(each gramatical type must appear below)",
         temperature: 0.8,
         presence_penalty: 2.0,
         max_tokens: 200
@@ -241,7 +253,9 @@ export async function populate(document) {
     //  GPT3 creates a response with 3 phrase examples for your word
     const examplesPromise = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Write 3 phrases with "${document.words}":\r\n1.`,
+        prompt: `Write 2 exemplary phrases with "${document.words}" `
+            + `for each of these gramatical types: ${types_txt}`
+            + "(each gramatical type must appear below)",
         temperature: 0.9,
         max_tokens: 200
     });
@@ -251,11 +265,11 @@ export async function populate(document) {
     await Promise.all([...promises])
     .then((results) => {
         
-        //  POR HACER: Merge this code with the code at the end of this method, so as to have
-        //  everything in the same variety before pushing it into the varieties array.
+        let l = 0;
 
+        //  POR HACER: borra este codigo inservible
         //  Convert the meanings response text to an array
-        let l = document.types.length - 1;
+/*         let l = document.types.length - 1;
         results.forEach((_, i) => {
             if (i <= l) {
                 let type = document.types[i];
@@ -267,12 +281,16 @@ export async function populate(document) {
                     varieties.push(variety);
                 }); 
             }
-        });
+        }); */
+
+        //  Convert the meanings response text to an array
+        const meanings_txt = results[l].data.choices[0].text;
+        const meanings = splitByType(meanings_txt);
 
         //  Convert the translations response text to an array
         const translations_txt = results[l+1].data.choices[0].text;
         const translations = splitByType(translations_txt);
-        //  let translations = cleanArray(translations_txt.split(/\d.|, /gm));
+        //  let translations = cleanArray(translations_txt.split(/\d|, /gm));
         
         //  Convert the synonyms response text to an array
         const synonyms_txt = results[l+2].data.choices[0].text;
@@ -285,16 +303,20 @@ export async function populate(document) {
         //  Convert the examples response text to an array
         const examples_txt = results[l+4].data.choices[0].text;
         const examples = splitByType(examples_txt);
-        examples.forEach((example,i) => {
+
+        //  POR HACER: Parece ser que este codigo falla, examples esta vacio. 
+        //             Averiguar por qué.
+/*         examples.forEach((example,i) => {
             //  This code below is regex pruning specific to example responses
             example = example.charAt(0).toUpperCase() + `${example.slice(1)}.`;
             examples[i] = example;
-        });
+        }); */
 
         //  POR HACER: Complete this code (apart from translations, the rest of 
         //  elements have no type yet, change the requests you make to OpenAI)
         document.types.forEach(type => {
             let variety = new WordVariety(type, document.words);
+            variety.meanings.push(...sortByType(meanings, type));
             variety.translations.push(...sortByType(translations, type));
             variety.synonyms.push(...sortByType(synonyms, type));
             variety.antonyms.push(...sortByType(antonyms, type));
@@ -368,44 +390,45 @@ export async function findTypes(words) {
             //  GPT3 checks wether your word is an interjection
             promises.push(isType(words, "interjection"));
             types.push("interjection");
+
+            await Promise.all(promises)
+            .then(responses => {
+                responses.forEach((response, i) => {
+                    if (response.data.choices[0].text.toLowerCase().includes("no")) {
+                        types.splice(i,1);
+                    }
+                });
+            });
         }
         else if (types.length === 0 && wordCount > 1) {
+            //  POR HACER: Borrar esta rama de else if, es innecesaria
             //  promises = [];
             //  GPT3 checks wether your phrase is an expression
             //  (DANGER: Every phrase is a valid expression for GPT3)
             //  promises.push(isType(words, "expression"));
             //  types.push("expression");
         }
-        await Promise.all(promises)
-        .then(responses => {
-            responses.forEach((response, i) => {
-                if (response.data.choices[0].text.toLowerCase().includes("no")) {
-                    types.splice(i,1);
-                }
-            });
-        });
     });
 
     return types;
 }
 
-//  Sends a request to OpenAI asking if 
+//  Sends a request to OpenAI asking if a given
+//  gramatical type is valid for our word
 export function isType(words, type) {
-    let to = "", valid = "", n="";
+    let to = '', valid = '', n='';
     if (type === "verb") {
-        to = "to";
-    }
-    else if (type === "verb" || type === "expression") {
-        valid = "valid";
+        to = "to ";
+        valid = "valid ";
     }
     else if (type === "adjective" || type === "adverb" || type === "idiom" ||
         type === "interjection" || type === "expression") {
-        n = "n";
+        n = "n ";
     }
 
     return openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Is ${to} "${words}" a${n} ${valid} ${type}?:\r\n`
+        prompt: `Is ${to}"${words}" a${n}${valid}${type}?\r\n`
         + "(yes/no)\r\n",
         max_tokens: 5
     });
@@ -416,8 +439,15 @@ export function isType(words, type) {
 //  elements from the response text coming from GPT3 (the word
 //  information could be whatever: translations, synonyms, etc...)
 export function splitByType(text) {
-    const typesRegex = "(pro)?noun|(ad)?verb|adjective|idiom|preposition|(conju|interje)ction";
-    const splitRegex = `/((\(.*)?(${typesRegex})(.*\))?)|((.*)(${typesRegex})(.*\)?)?\:)/gmi`;
+    const typesRegex = "noun|verb|adjective|adverb|pronoun|preposition|conjuction|interjection|idiom";
+    const splitRegex = new RegExp(`\\(?(${typesRegex})\\)?\\:?`, "gmi");
+    //  POR HACER: Borra esta linea, es el regex antiguo, el cual es inservible, porque
+    //             las responses de GPT3 vienen en una unica linea en vez de en varias
+    //  const splitRegex = `/((\(.*)?(${typesRegex})(.*\))?)|((.*)(${typesRegex})(.*\)?)?\:)/gmi`;
+
+    //  HECHO: Utilizar cleanArray aqui parece dar problemas luego con el merger de mas abajo
+    //              Solucion: Dichos problemas no aparecen mientras mantengas el literal 'typesRegex' 
+    //                        tal cual está, sin parentesis ninguno.
 
     //  Array with content and types split apart 
     //  (Explanation: The method split() captures both the information between separators and
@@ -425,15 +455,23 @@ export function splitByType(text) {
     //   parentheses, like this: /(regex_expression)/ ...even more, split() creates an array
     //   in which its elements appear in the same order as the original text occurrences)
     let array = cleanArray(text.split(splitRegex));
+    //  let array = cleanArray(text.split(splitRegex));
 
     //  Code to merge the content with its corresponding type
     array.forEach((element, index) => {
         if (index < array.length-1 && index%2 === 0) {
-            let type = element[index+1].match(typesRegex)[0];
+            //  We find the closest separator element using a ternary operator
+            let type = (splitRegex.test(element) ? element[index] : array[index+1]);
+
             //  With the method splice we both remove the content and separator (type) elements from the
             //  array, to then merge them back together into one same element and push that into the array.
             //  (This will become useful once we sort all the word contents by type ahead)
             array.splice(index, 2, `${element} (${type})`);
+
+            //  POR HACER:  Todavía te queda por hacer un split mas, en caso de que los elementos de cada
+            //              type aparezcan en una lista tipo: "1. asdasd 2. odninbif 3. isnfiafn" o bien
+            //              vengan varios elementos separados por coma, debes sacarlos individualmente.
+            //  ......
         }
     });
     return array;
@@ -443,8 +481,7 @@ export function splitByType(text) {
 //  Sorts which elements in an array of string elements
 //  contain a certain gramatical type in parenthesis
 export function sortByType(array, type) {
-    const array = [];
-    const regex = new RegExp(`(${type})`, "gmi");
+    const regex = new RegExp(`\\(${type}\\)`, "gmi");
     //  POR HACER: Borra este comentario si ves que este metodo funciona bien
     //  const eraseRegex = new RegExp(`\s?\(.*${type}.*\)\s?|^.*${type}.*:\s?`, "gmi");
     array.forEach(element => {
@@ -454,6 +491,23 @@ export function sortByType(array, type) {
             element = element.replace(regex, "");
             array.push(element);
         } 
+    });
+    return array;
+}
+
+
+//  Cleanses the text of all elements of an array of string elements
+export function cleanArray(array) {
+    //  First of all we make sure to erase all
+    //  empty or undefined elements from the array
+    array = array.filter(element => {
+        return element !== undefined && element !== null && /\w/.test(element)
+    });
+    array.forEach((el, i) => {
+        //  Correct the text inside of a given element
+        el = cleanText(el);
+        //  Put the clean element back inside the array
+        array[i] = el;
     });
     return array;
 }
@@ -477,22 +531,6 @@ export function cleanText(words) {
         .replace(/^el(l?a?o?s?) |^l(a?e?o?)s? |^(m|t)(e|i) /gmi, '')
         .replace(/^n?os |^una? |^(t|s)(u|e) |^(nue|vue)str(a|o) /gmi, '');
     return words;
-}
-
-
-//  Cleanses the text of all elements of an array of string elements
-export function cleanArray(array) {
-    array.forEach((el, i) => {
-        //  Correct the text inside of a given element
-        el = cleanText(el);
-        //  Put the clean element back inside the array
-        array[i] = el;
-    });
-    array.forEach((el, i) => {
-        if (el === '' || el === "" || el === '.' || el === ',')
-            array.splice(i,1);
-    });
-    return array;
 }
 
 
