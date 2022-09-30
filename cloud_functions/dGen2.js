@@ -95,9 +95,9 @@ export async function errorHandler(document) {
         //  First we check if each given word is valid
         const promises = [];
         let allWordsValid = true;
-        const words = document.words.split(/\s/gmi);
+        const words = document.words.split(/\s/gim);
         words.forEach(word => {
-            word = word.replace(/'([\s\S]*)$/gmi, '')
+            word = word.replace(/'([\s\S]*)$/gim, '')
             promises.push(checkWord(word));
         });
 
@@ -396,9 +396,17 @@ export function isType(words, type) {
 //  information could be whatever: translations, synonyms, etc...)
 export function splitByType(text) {
     const types = "noun|verb|adjective|adverb|pronoun|preposition|conjuction|interjection|idiom";
-    const typesRegex = new RegExp(`${types}`, "gmi")
-    const splitRegex = new RegExp(`\\(?(${types})\\)?\\:?`, "gmi");
+    const splitRegex = new RegExp(`\\(?(${types})\\)?\\:?`, "gim");
     let merger = [];
+
+    //  NOTE: You have to be careful with the regex you put into the test() method, as it can have faulty behavior:
+    //  https://stackoverflow.com/questions/9275372/javascript-regex-should-pass-test-but-appears-to-fail-why
+    //  https://stackoverflow.com/questions/1520800/why-does-a-regexp-with-global-flag-give-wrong-results
+    //
+    //  "It boils down to the fact that the test method of javascript regular expressions returns a result 
+    //  and moves a pointer on to the index after the match." --> Removing the letter 'g' solves the problem
+    //  because then the regex doesn't evaluate iteratively each time the lastIndex property changes
+    const typesRegex = new RegExp(`${types}`, "im");
 
     //  Array with content and types split apart 
     //  (Explanation: The method split() captures both the information between separators and
@@ -410,29 +418,21 @@ export function splitByType(text) {
     //  Code to merge the content with its corresponding type
     array.forEach((element, i) => {
         if (i < array.length-1 && i%2 === 0) {
-            let index = i+1;
-            let currentElement = element;
-            let currentElement2 = array[i];
-            let nextElement = array[i+1];
             //  We find both which element has the contents and which element is the separator
             //  using a ternary operator where the condition is testing if the array elements
             //  match a regex pattern looking for the gramatical types' words
             let type = (typesRegex.test(element) ? element : array[i+1]);
-            let what = array.indexOf(type);
-            let the = array.indexOf(type)%2;
-            let fuck = array.indexOf(type)%2 === 0;
-            //  let content = (splitRegex.test(element) ? array[i+1] : element);
             let content = (array.indexOf(type)%2 === 0 ? array[i+1] : element);
-
-
-            //  Then we store the merged content into another array
-            merger.push(`${content} (${type})`);
 
             //  POR HACER:  Todavía te queda por hacer un split mas, en caso de que los elementos de cada
             //              type aparezcan en una lista tipo: "1. asdasd 2. odninbif 3. isnfiafn" o bien
             //              vengan varios elementos separados por coma, debes sacarlos individualmente.
-            //              IMPORTANTE: Utilizar como separador el siguiente regex: /\W*\d\W*|\s{2}|\,\s/gmi
-            //  ......
+            //              IMPORTANTE: Utilizar como separador el siguiente regex: /\W*\d\W*|\s{2}|\,\s/gim
+            let contents = content.split(/\W*\d\W*|\s{2}|\,\s/gim);
+            contents.forEach(content => {
+                //  Then we store the merged content into another array
+                merger.push(`${content} (${type})`);
+            });
         }
     });
     return merger;
@@ -442,9 +442,9 @@ export function splitByType(text) {
 //  Sorts which elements in an array of string elements
 //  contain a certain gramatical type in parenthesis
 export function sortByType(array, type) {
-    const regex = new RegExp(`\\(${type}\\)`, "gmi");
+    const regex = new RegExp(`\\(${type}\\)`, "im");
     //  POR HACER: Borra este comentario si ves que este metodo funciona bien
-    //  const eraseRegex = new RegExp(`\s?\(.*${type}.*\)\s?|^.*${type}.*:\s?`, "gmi");
+    //  const eraseRegex = new RegExp(`\s?\(.*${type}.*\)\s?|^.*${type}.*:\s?`, "gim");
     array.forEach(element => {
         if (regex.test(element)) {
             //  POR HACER: Este reemplazo puede no bastar, ya que puede haber
@@ -462,7 +462,7 @@ export function cleanArray(array) {
     //  First of all we make sure to erase all
     //  empty or undefined elements from the array
     array = array.filter(element => {
-        return element !== undefined && element !== null && /\w/.test(element)
+        return element !== undefined && element !== null && /\w/mi.test(element)
     });
     array.forEach((el, i) => {
         //  Correct the text inside of a given element
@@ -478,19 +478,19 @@ export function cleanArray(array) {
 //  either from a user request or an OpenAI response
 export function cleanText(words) {
     //  Fuse a multiline string into a single line
-    words = words.replace(/(\r?\n)+|\r+|\n+|\t+/gmi, "  ");
+    words = words.replace(/(\r?\n)+|\r+|\n+|\t+/gim, "  ");
     //  Eliminate all duplicate consecutive words except one
-    words = words.replace(/\b(\w+)(?=\W\1\b)+\W?/gmi, "");
+    words = words.replace(/\b(\w+)(?=\W\1\b)+\W?/gim, "");
     //  Get rid of some non-word characters & 'and' at beginning of text
-    words = words.replace(/[^\w\s\'\,(áéíóúñ)]|^\s?and\s/gmi, '');
+    words = words.replace(/[^\w\s\'\,(áéíóúñ)]|^\s?and\s/gim, '');
     //  Get rid of strange tags or equal signs
-    words = words.replace(/\<([^\>]*)\>|([\s\S]*)\=/gmi, '');
+    words = words.replace(/\<([^\>]*)\>|([\s\S]*)\=/gim, '');
     //  Trim and lowercase the text
     words = words.trim().toLowerCase();
     //  Get rid of Spanish unnecessary stuffing
-    words = words.replace(/^a /gmi, '')
-        .replace(/^el(l?a?o?s?) |^l(a?e?o?)s? |^(m|t)(e|i) /gmi, '')
-        .replace(/^n?os |^una? |^(t|s)(u|e) |^(nue|vue)str(a|o) /gmi, '');
+    words = words.replace(/^a /gim, '')
+        .replace(/^el(l?a?o?s?) |^l(a?e?o?)s? |^(m|t)(e|i) /gim, '')
+        .replace(/^n?os |^una? |^(t|s)(u|e) |^(nue|vue)str(a|o) /gim, '');
     return words;
 }
 
