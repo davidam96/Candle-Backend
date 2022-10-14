@@ -27,23 +27,23 @@ export class WordResponse {
 export class WordDocument {
     constructor(words) {
         this.words=words;
-        this.plural="";
         this.wordCount=words.split(/\s/gm).length;
+        this.plural="";
         this.types=[];
+        this.varieties=[];
+        this.imageUrl="";
+    }
+}
+
+export class WordVariety {
+    constructor(type) {
+        this.type=type;
         this.meanings=[];
         this.translations=[];
         this.synonyms=[];
         this.antonyms=[];
         this.examples=[];
-        this.combinations=[];
-        this.imageUrl="";
-    }
-}
-
-export class WordMeaning {
-    constructor(meaning, type) {
-        this.meaning=meaning;
-        this.type=type;
+        this.variants=[];
     }
 }
 
@@ -69,7 +69,8 @@ export async function init(words) {
     //  and creates a personalised response object
     let response = await errorHandler(document);
 
-    //  Proceeds to populate the word document
+    //  Proceeds to populate the word document after
+    //  having found no errors in the error handler
     if (response.errorCode === -1) {
         await populate(document);
     }
@@ -86,106 +87,59 @@ export async function init(words) {
 }
 
 
-//  Uses regexes to clean any given text coming
-//  either from a user request or an OpenAI response
-export function cleanText(words) {
-    // --------  ORIGINAL CODE OF cleanText()  ---------
-    //  Fuse a multiline string into a single line
-    words = words.replace(/(\r?\n)+|\r+|\n+|\t+/gm, " ");
-    //  Eliminate all duplicate consecutive words except one
-    words = words.replace(/\b(\w+)(?=\W\1\b)+\W?/gm, "");
-
-
-    // --------  FORMER CODE OF cleanArray()  ----------
-    //  Get rid of some non-word characters & 'and' at beginning of text
-    words = words.replace(/[^\w\s\'\,(áéíóúñ)]|\d|^(\s?and\s)/gmi, '');
-    //  Get rid of strange tags or equal signs
-    words = words.replace(/\<([^\>]*)\>|([\s\S]*)\=/gm, '');
-    //  Trim and lowercase the text
-    words = words.trim().toLowerCase();
-    //  Get rid of spanish pronouns
-    words = words.replace(/^el |^las? |^los |^una?/gmi, '');
-    return words;
-}
-
-
-//  Cleanses the text of all elements of an array of string elements
-export function cleanArray(array) {
-    array.forEach((el, i) => {
-        //  Correct the text inside of a given element
-        el = cleanText(el);
-        //  Put the clean element back inside the array
-        array[i] = el;
-    });
-    array.forEach((el, i) => {
-        if (el === '' || el === "" || el === '.' || el === ',')
-            array.splice(i,1);
-    });
-    return array;
-}
-
-
 //  Checks wether a word or a phrase is a valid one
 export async function errorHandler(document) {
     let response = new WordResponse();
     const charCount = document.words.length;
-    if (document.words === "") {
-        response.error = "Empty request.";
-        response.errorCode = 0;
-    }
-    else if (document.wordCount === 1 && charCount <= 30) {
-        let isValidWord = await checkWord(document.words);
-        if (!isValidWord) {
-            response.error = "Invalid word.";
-            response.errorCode = 1;
-        }
-    }
-    else if (document.wordCount > 1 && document.wordCount <= 13 && charCount <= 130) {
-        //  First we check if each given word in the phrase is valid
-        let allWordsAreValid = true;
-        const words = document.words.split(/\s/gm);
+    if (document.words !== "" && document.wordCount <= 13 && charCount <= 130) {
+        //  First we check if each given word is valid
         const promises = [];
+        let allWordsValid = true;
+        const words = document.words.split(/\s/gim);
         words.forEach(word => {
-            word = word.replace(/'([\s\S]*)$/gm, '')
+            word = word.replace(/'([\s\S]*)$/gim, '')
             promises.push(checkWord(word));
         });
+
         await Promise.all(promises)
         .then(results => {
           results.find(result => {
             if (!result) {
-              response.error = "The phrase contains an invalid word."
-              response.errorCode = 2;
-              allWordsAreValid = false;
+              response.error = "Invalid word found."
+              response.errorCode = 1;
+              allWordsValid = false;
               return true;
             }
             return false;
           });
         });
-        //  Then, if all words in the phrase are valid, we check and
-        //  correct the phrase gramatically and assign it its type.
-        if (allWordsAreValid) {
-            let isValidPhrase = await checkPhrase(document);
-            //  We retry a second time
-            if (!isValidPhrase) {
-                isValidPhrase = await checkPhrase(document);
-            }            
-            if (!isValidPhrase) {
-                response.error = "Invalid phrase. It's neither an idiom nor a verb";
-                response.errorCode = 3;
+
+        if (allWordsValid) {
+            //  Sort all the possible gramatical types
+            //  first, wether it be a word or a phrase
+            const types = await findTypes(document.words);
+            document.types.push(...types);
+
+            //  Then if there are no types inside the array,
+            //  it's because we have an invalid phrase
+            if (document.wordCount > 1 && types.length < 1) {
+                response.error = "Invalid phrase combination: "
+                    + "It is neither an idiom, verb, or noun.";
+                response.errorCode = 2;
             }
         }
     }
-    else if (document.wordCount > 13) {
-        response.error = "Limit of 13 words exceeded";
-        response.errorCode = 4;
+    else if (document.words === "") {
+        response.error = "Empty request.";
+        response.errorCode = 3;
     }
-    else if (charCount > 130) {
-        response.error = "Limit of 130 characters exceeded";
-        response.errorCode = 5;
+    else if (document.wordCount > 13 || charCount > 130) {
+        response.error = "Limit of 13 words or 130 characters exceeded";
+        response.errorCode = 4;
     }
     else {
         response.error = "Invalid request format.";
-        response.errorCode = 6;
+        response.errorCode = 5;
     }
     return response;
 }
@@ -203,279 +157,338 @@ export async function checkWord(word) {
 }
 
 
-//  Checks if a given group of words are a valid idiom or verb. In case
-//  they are not, it corrects it and tries with the correction instead
-export async function checkPhrase(document) {  
-
-    let isValidPhrase = false;
-
-    //  GPT3 sorts out wether a group of words is an idiom
-    const idm_p = openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `Is "${document.words}" an idiom?:\r\n`
-        + "(yes/no)\r\n",
-        max_tokens: 5
-    });
-
-    //  GPT3 sorts out wether a group of words is a verb
-    const vb_p = openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `Is "to ${document.words}" a valid verb?:\r\n`
-        + "(yes/no)\r\n",
-        max_tokens: 5
-    });
-
-    //  GPT3 sorts out wether a group of words is a noun
-    const nn_p = openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `Is "${document.words}" a noun?:\r\n`
-        + "(yes/no)\r\n",
-        max_tokens: 5
-    });
-
-    //  Fills the word type and returns true if the
-    //  phrase is wether an idiom, a verb or both.
-    await Promise.all([idm_p, vb_p, nn_p])
-    .then(([idm_r, vb_r, nn_r]) => {
-        const isIdiom = idm_r.data.choices[0].text.toLowerCase().includes("yes");
-        const isVerb = vb_r.data.choices[0].text.toLowerCase().includes("yes");
-        const isNoun = nn_r.data.choices[0].text.toLowerCase().includes("yes");
-        if (isIdiom)
-            document.types.push("idiom");
-        if (isVerb) 
-            document.types.push("verb");
-        if (isNoun) 
-            document.types.push("noun");
-        if (isIdiom || isVerb || isNoun)
-            isValidPhrase = true;
-    });
-    return isValidPhrase;
-}
-
-
 //  Fills the document object with meanings for the word or phrase
 export async function populate(document) {
+    const promises = [];
+    const types_txt = document.types.join(", ");
+    const varieties = [];
 
-    //  GPT3 sorts the possible syntactic types for a given word
-    if (document.words.split(/\s/gm).length === 1) {
-        const types = await sortTypes(document.words);
-        document.types.push(...types);
-    }
-
-    //  (POR HACER) 
-    //  Hacer que GPT3 primero distinga si la palabra viene en plural o en singular,
-    //  y en función del resultado actuar en consecuencia en cada caso.
-    //  (el codigo de abajo y el metodo findPlural() están incompletos)
-
-    //  GPT3 writes the plural of your word
-    if (document.types.includes("noun")) {
-        document.plural = await findPlural(document.words);
-    }
-
-    //  (POR HACER):    Comprobar si el codigo de generar meanings funciona o no.
-    //  HECHO:          En algunos casos el texto de los meanings viene con el type entre parentesis, y además
-    //                  luego en la propiedad 'meaning.type' el verdadero tipo que le deberia corresponder es otro
-    //                  Parece que esto es debido a una race condition, el codigo de debajo de hallar los meanings 
-    //                  sigue ejecutandose, cuando deberia esperar a que este terminase primero.
-    //  HECHO:          ¿Se pueden ejecutar las promesas que traen estos meanings en paralelo en vez de en serie?
-    //                  Sí --> Promise.all() preserva el orden de las responses según el orden de las promesas.
-    //  POR HACER:      En algunos casos el texto de los meanings viene en blanco.
-    //  POR HACER:      Unificar frases de ejemplo con los meanings de cada type. Hacerlo también si puede ser con
-    //                  las traducciones, que sean específicas a cada type.
+    //  POR HACER:      Hacer que GPT3 encuentre las variantes de palabra correspondientes a cada
+    //                  tipo gramatical de una palabra concreta, utilizando distintos morfemas.
+    //  POR HACER:      Solucionar los problemas que aparecen en el documento word 'Casuistica regex.odt'
 
 
     //  GPT3 generates meanings corresponding to each gramatical type your word has
-    let means_p = [];
-    document.types.forEach(async (type) => {   
-        let n = "1", s = "";
-        if (type === "noun" || type === "verb") {
-            n = "2";
-            s = "s";
-        }
-        const mean_p = openai.createCompletion("text-davinci-002", 
-        {
-            prompt: `Write "${n}" common meaning"${s}" for "${document.words}" as "${type}"`
-            + `(no examples)\r\n1. `,
-            temperature: 0.7,
-            max_tokens: 200
-        });
-        means_p.push(mean_p);
+    const meaningsPromise = openai.createCompletion("text-davinci-002", 
+    {
+        prompt: `Write the 2 most common meanings for "${document.words}", `
+            + `for each of these gramatical types: ${types_txt}\r\n`,
+        temperature: 0.85,
+        frequency_penalty: 1.5, 
+        max_tokens: 200
     });
+    promises.push(meaningsPromise);
 
     //  GPT3 creates a response with 5 spanish translations for your word
-    const tran_p = openai.createCompletion("text-davinci-002", 
+    const translationsPromise = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Write 5 translations for "${document.words}" in Spanish:\r\n`,
-        temperature: 0.9,
+        prompt: `Write 3 translations for "${document.words}" into Spanish, `
+            + `for each of these gramatical types: ${types_txt}\r\n`,
+        temperature: 0.85,
+        frequency_penalty: 1.5,
         max_tokens: 200
     });
+    promises.push(translationsPromise);
 
-    //  GPT3 creates a response with 10 synonyms for your word
-    const syn_p = openai.createCompletion("text-davinci-002", 
+    //  GPT3 creates a response with 3 synonyms for each gramatical type of your word
+    const synonymsPromise = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Write 5 synonyms for "${document.words}":\r\n`,
-        temperature: 0.9,
+        prompt: `Write 3 synonyms for "${document.words}", `
+            + `for each of these gramatical types: ${types_txt}\r\n`,
+        temperature: 0.8,
+        frequency_penalty: 1.9,
         max_tokens: 200
     });
+    promises.push(synonymsPromise);
 
-    //  GPT3 creates a response with 10 antonyms for your word
-    const ant_p = openai.createCompletion("text-davinci-002", 
+    //  GPT3 creates a response with 3 antonyms for each gramatical type of your word
+    const antonymsPromise = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `What would be the opposite of "${document.words}"?`
-        + `(just write 3 words or verbs that mean the contrary to "${document.words}")`,
-        temperature: 0.7,
+        prompt: `Write 3 antonyms for "${document.words}", `
+            + `for each of these gramatical types: ${types_txt}\r\n`,
+        temperature: 0.8,
+        frequency_penalty: 1.9,
         max_tokens: 200
     });
+    promises.push(antonymsPromise);
 
     //  GPT3 creates a response with 3 phrase examples for your word
-    const ex_p = openai.createCompletion("text-davinci-002", 
+    const examplesPromise = openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Write 3 phrases with "${document.words}":\r\n1.`,
+        prompt: `Write 2 exemplary phrases with "${document.words}" `
+            + `for each of these gramatical types: ${types_txt}`,
         temperature: 0.9,
+        presence_penalty: 1.5,
         max_tokens: 200
     });
+    promises.push(examplesPromise);
+
+    //  GPT3 writes the plural of your word, if there is one
+    if (document.types.some(type => /(pro)?noun|verb|idiom/.test(type))) {
+        promises.push(findPlural(document.words));
+    }
 
     //  This executes all the above promises asynchronously so they complete in parallel
-    await Promise.all([...means_p, tran_p, syn_p, ant_p, ex_p])
+    await Promise.all([...promises])
     .then((results) => {
+
         //  Convert the meanings response text to an array
-        let l = document.types.length - 1;
-        results.forEach((_, i) => {
-            if (i <= l) {
-                let type = document.types[i];
-                const meanings_txt = results[i].data.choices[0].text;
-                let meanings = cleanArray(meanings_txt.split(/\d./gm));
-                meanings.forEach(meaning => {
-                    let wordMeaning = new WordMeaning(meaning, type);
-                    document.meanings.push(wordMeaning);
-                }); 
-            }
-        });
+        const meanings_txt = results[0].data.choices[0].text;
+        const meanings = splitByType(meanings_txt);
+
         //  Convert the translations response text to an array
-        const translations_txt = results[l+1].data.choices[0].text;
-        let translations = cleanArray(translations_txt.split(/\d.|, /gm));
+        const translations_txt = results[1].data.choices[0].text;
+        const translations = splitByType(translations_txt);
+        
         //  Convert the synonyms response text to an array
-        const synonyms_txt = results[l+2].data.choices[0].text;
-        let synonyms = cleanArray(synonyms_txt.split(/\d.|, /gm));
+        const synonyms_txt = results[2].data.choices[0].text;
+        const synonyms = splitByType(synonyms_txt);
+
         //  Convert the antonyms response text to an array
-        const antonyms_txt = results[l+3].data.choices[0].text;
-        let antonyms = cleanArray(antonyms_txt.split(/\d.|, /gm));
+        const antonyms_txt = results[3].data.choices[0].text;
+        const antonyms = splitByType(antonyms_txt);
+
         //  Convert the examples response text to an array
-        const examples_txt = results[l+4].data.choices[0].text;
-        let examples = cleanArray(examples_txt.split(/\d./gm));
+        const examples_txt = results[4].data.choices[0].text;
+        const examples = splitByType(examples_txt);
         examples.forEach((example,i) => {
+            //  This code below is regex pruning specific to example responses
             example = example.charAt(0).toUpperCase() + `${example.slice(1)}.`;
             examples[i] = example;
         });
-        document.translations.push(...translations);
-        document.synonyms.push(...synonyms);
-        document.antonyms.push(...antonyms);
-        document.examples.push(...examples);
-        document.combinations = makeCombinations(document.words);  
+
+        //  Store the singular and plural in the document, if there are
+        if (results[5] !== undefined) {
+            let singularThenPlural = results[5];
+            document.words = singularThenPlural[0];
+            document.plural = singularThenPlural[1];
+        }
+
+        //  Generate word varieties for each gramatical type and fill them with
+        //  the content from the GPT3 responses, then store all into the document 
+        document.types.forEach(type => {
+            let variety = new WordVariety(type);
+            variety.meanings.push(...sortByType(meanings, type));
+            variety.translations.push(...sortByType(translations, type));
+            variety.synonyms.push(...sortByType(synonyms, type));
+            variety.antonyms.push(...sortByType(antonyms, type));
+            variety.examples.push(...sortByType(examples, type));
+            varieties.push(variety);
+        });
+    
+        document.varieties = varieties;
     });
 }
 
 
-//  Sorts out all the possible syntactic types for a given word
-export async function sortTypes(word) {
+//  Finds all the possible syntactic types for a given word
+export async function findTypes(words) {
     let types = [];
+    let promises = [];
+    let wordCount = words.split(/\s/gm).length;
 
-    const nn_p = openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `Is "${word}" a noun?\r\n`
-        + "(yes/no)\r\n",
-        max_tokens: 5
-    });
-    const vb_p = openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `Is "to ${word}" a valid verb?\r\n`
-        + "(yes/no)\r\n",
-        max_tokens: 5
-    });
-    const adj_p = openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `Is "${word}" an adjective?\r\n`
-        + "(yes/no)\r\n",
-        max_tokens: 5
-    });
-    const adv_p = openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `Is "${word}" an adverb?\r\n`
-        + "(yes/no)\r\n",
-        max_tokens: 5
-    });
-    const pron_p = openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `Is "${word}" a pronoun?\r\n`
-        + "(yes/no)\r\n",
-        max_tokens: 5
-    });
-    const prep_p = openai.createCompletion("text-davinci-002", 
-    {
-        prompt: `Is "${word}" a preposition?\r\n`
-        + "(yes/no)\r\n",
-        max_tokens: 5
-    });
+    //  GPT3 checks wether your word or phrase is a noun
+    promises.push(isType(words, "noun"));
+    types.push("noun");
+    //  GPT3 checks wether your word or phrase is a verb
+    promises.push(isType(words, "verb"));
+    types.push("verb");
 
-    await Promise.all([nn_p, vb_p, adj_p, adv_p, pron_p, prep_p])
-    .then(([nn_r, vb_r, adj_r, adv_r, pron_r, prep_r]) => {
-        if (nn_r.data.choices[0].text.toLowerCase().includes("yes"))
-            types.push("noun");
-        if (vb_r.data.choices[0].text.toLowerCase().includes("yes"))
-            types.push("verb");
-        if (adj_r.data.choices[0].text.toLowerCase().includes("yes"))
-            types.push("adjective");
-        if (adv_r.data.choices[0].text.toLowerCase().includes("yes"))
-            types.push("adverb");
-        if (pron_r.data.choices[0].text.toLowerCase().includes("yes"))
-            types.push("pronoun");
-        if (prep_r.data.choices[0].text.toLowerCase().includes("yes"))
-            types.push("preposition");
-    });
-
-
-    //  Only after having checked that the word does not belong to the
-    //  main gramatical types listed above, then we start to check the
-    //  other alternative and less common gramatical types.
-    if (types.length === 0) {
-        const conj_p = openai.createCompletion("text-davinci-002", 
-        {
-            prompt: `Is "${word}" a conjuction?\r\n`
-            + "(yes/no)\r\n",
-            max_tokens: 5
-        });
-        const inter_p = openai.createCompletion("text-davinci-002", 
-        {
-            prompt: `Is "${word}" an interjection?\r\n`
-            + "(yes/no)\r\n",
-            max_tokens: 5
-        });
-
-        await Promise.all([prep_p, conj_p, inter_p])
-        .then(([conj_r, inter_r]) => {
-            if (conj_r.data.choices[0].text.toLowerCase().includes("yes"))
-                types.push("conjuction");
-            if (inter_r.data.choices[0].text.toLowerCase().includes("yes"))
-                types.push("interjection");
-        });
+    //  One-Words only
+    if (wordCount === 1) {
+        //  GPT3 checks wether your word is an adjective
+        promises.push(isType(words, "adjective"));
+        types.push("adjective");
+        //  GPT3 checks wether your word is an adverb
+        promises.push(isType(words, "adverb"));
+        types.push("adverb");
+        //  GPT3 checks wether your word is a pronoun
+        promises.push(isType(words, "pronoun"));
+        types.push("pronoun");
+        //  GPT3 checks wether your word is a preposition
+        promises.push(isType(words, "preposition"));
+        types.push("preposition");
     }
 
+    //  Phrases only
+    if (wordCount > 1) {
+        //  GPT3 sorts out wether a group of words is an idiom
+        promises.push(isType(words, "idiom"));
+        types.push("idiom");
+    }
+
+    await Promise.all(promises)
+    .then(async(responses) => {
+        responses.forEach((response, i) => {
+            //  If the response from GPT3 says that any type is not
+            //  valid, we simply remove it from the types array
+            if (response.data.choices[0].text.toLowerCase().includes("no")) {
+                types.splice(i,1);
+            }
+        });
+
+        //  Only after having checked that the word or phrase does not belong to
+        //  the main gramatical types listed above, then we start to check
+        //  other alternative and less common gramatical types
+        if (types.length === 0 && wordCount === 1) {
+            promises = [];
+            //  GPT3 checks wether your word is a conjuction
+            promises.push(isType(words, "conjuction"));
+            types.push("conjuction");
+            //  GPT3 checks wether your word is an interjection
+            promises.push(isType(words, "interjection"));
+            types.push("interjection");
+
+            await Promise.all(promises)
+            .then(responses => {
+                responses.forEach((response, i) => {
+                    if (response.data.choices[0].text.toLowerCase().includes("no")) {
+                        types.splice(i,1);
+                    }
+                });
+            });
+        }
+    });
+
     return types;
+}
+
+//  Sends a request to OpenAI asking if a given
+//  gramatical type is valid for our word
+export function isType(words, type) {
+    let to = '', valid = '', n='';
+    if (type === "verb") {
+        to = "to ";
+        valid = "valid ";
+    }
+    else if (type === "adjective" || type === "adverb" || type === "idiom" ||
+        type === "interjection" || type === "expression") {
+        n = "n ";
+    }
+
+    return openai.createCompletion("text-davinci-002", 
+    {
+        prompt: `Is ${to}"${words}" a${n}${valid}${type}?\r\n`
+        + "(yes/no)\r\n",
+        max_tokens: 5
+    });
+}
+
+
+//  Makes an array of gramatically typed word information 
+//  elements from the response text coming from GPT3 (the word
+//  information could be whatever: translations, synonyms, etc...)
+export function splitByType(text) {
+    const types = "noun|nombre|sustantivo|verbo?|adjec?tiv[eo]|adverbi?o?|pronoun|pronombre|"
+        + "preposi[ct]i[oó]n|conjunct?i[oó]n|interjec[tc]i[oó]n|idiom|modismo|expresi[oó]n";
+    const splitRegex = new RegExp(`\\(?(${types})\\)?\\:?`, "gim");
+    let merger = [];
+
+    //  NOTE: You have to be careful with the regex you put into the test() method, as it can have faulty behavior:
+    //  https://stackoverflow.com/questions/9275372/javascript-regex-should-pass-test-but-appears-to-fail-why
+    //  https://stackoverflow.com/questions/1520800/why-does-a-regexp-with-global-flag-give-wrong-results
+    //
+    //  "It boils down to the fact that the test method of javascript regular expressions returns a result 
+    //  and moves a pointer on to the index after the match." --> Removing the letter 'g' solves the problem
+    //  because then the regex doesn't evaluate iteratively each time the lastIndex property changes
+    const typesRegex = new RegExp(`${types}`, "im");
+
+    //  Array with content and types split apart 
+    //  (Explanation: The method split() captures both the information between separators and
+    //   also the separators themselves if you wrap the regex expression up in capture group
+    //   parentheses, like this: /(regex_whatever)/ ...even more, split() creates an array
+    //   in which its elements appear in the same order as the original text occurrences)
+    let array = cleanArray(text.split(splitRegex));
+
+    //  Code to merge the content with its corresponding type
+    array.forEach((element, i) => {
+        if (i < array.length-1 && i%2 === 0) {
+            //  We find both which element has the contents and which element is the separator
+            //  using a ternary operator where the condition is testing if the array elements
+            //  match a regex pattern looking for the gramatical types' words
+            let type = (typesRegex.test(element) ? element : array[i+1]);
+            let content = (array.indexOf(type)%2 === 0 ? array[i+1] : element);
+
+            //  Then again we split once more the content of the current elements into smaller chunks,
+            //   because in every GPT3 request I made each type has at least 2 different results
+            let contents = cleanArray(content.split(/\W*\d\W*|\s{2}|[\,\;]\s/gim));
+            contents.forEach(content => {
+                //  We store the merged content into another array
+                merger.push(`${content} (${type})`);
+            });
+        }
+    });
+    return merger;
+}
+
+
+//  Sorts which elements in an array of string elements
+//  contain a certain gramatical type in parenthesis
+export function sortByType(array, type) {
+    const sortedElements = [];
+    const regex = new RegExp(`\\s\\(${type}\\)`, "im");
+    array.forEach(element => {
+        if (regex.test(element)) {
+            element = element.replace(regex, '');
+            sortedElements.push(element);
+        } 
+    });
+    return sortedElements;
+}
+
+
+//  Cleanses the text of all elements of an array of string elements
+export function cleanArray(array) {
+    //  First of all we make sure to erase all
+    //  empty or undefined elements from the array
+    array = array.filter(element => {
+        return element !== undefined && element !== null && /\w/mi.test(element)
+    });
+    array.forEach((el, i) => {
+        //  Correct the text inside of a given element
+        el = cleanText(el);
+        //  Put the clean element back inside the array
+        array[i] = el;
+    });
+    return array;
+}
+
+
+//  Uses regexes to clean any given text coming
+//  either from a user request or an OpenAI response
+export function cleanText(words) {
+    //  Fuse a multiline string into a single line
+    words = words.replace(/(\r?\n)+|\r+|\n+|\t+/gim, "  ");
+    //  Eliminate all duplicate consecutive words except one
+    words = words.replace(/\b(\w+)(?=\W\1\b)+\W?/gim, "");
+    //  Get rid of some non-word characters and
+    //  parentheses at the beginning or end of the text
+    words = words.replace(/[^\w\s\'\,\;\(\)áéíóúñ\?\!]|^\(|\)$/gim, '');
+    //  Get rid of strange tags or equal signs
+    words = words.replace(/\<([^\>]*)\>|([\s\S]*)\=/gim, '');
+    //  Trim and lowercase the text
+    words = words.trim().toLowerCase();
+    //  Get rid of unnecessary English stuffing
+    words = words.replace(/^and /, '');
+    //  Get rid of unnecessary Spanish stuffing
+    words = words.replace(/^a |^([eé]l)?(l?a?o?s?) |^(m|t)(e|i) |^(t|s)(u|e) /gim, '')
+        .replace(/|^n?os |^un[oa]? |^(nue|vue)str(a|o) | yo | (nos|vos)otros /gim, '');
+    return words;
 }
 
 
 //  Finds the plural of your word, if there is one
 export async function findPlural(words) {
-    let plural = "";
-    await openai.createCompletion("text-davinci-002", 
+    const pluralPromise = await openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Write the plural of "${words}":\r\n`,
-        temperature: 0.5,
-        max_tokens: 200
-    }).then(result => {
-        plural = cleanText(result.data.choices[0].text);
+        prompt: `Write the singular and plural for "${words}"\r\n`
+            + "singular: ",
+        max_tokens: 100
     });
-    return plural;
+
+    let plural_txt = pluralPromise.data.choices[0].text;
+    const splitRegex = new RegExp(`singular:\s?|plural:\s?`, "gim");
+    return cleanArray(plural_txt.split(splitRegex));
 }
 
 
