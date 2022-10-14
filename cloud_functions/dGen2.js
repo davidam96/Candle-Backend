@@ -163,19 +163,10 @@ export async function populate(document) {
     const types_txt = document.types.join(", ");
     const varieties = [];
 
-    //  HECHO:          Hacer que GPT3 primero distinga si la palabra viene en plural o en singular,
-    //                  y en función del resultado actuar en consecuencia en cada caso.
-    //                  (el codigo de abajo y el metodo findPlural() están incompletos)
     //  POR HACER:      Hacer que GPT3 encuentre las variantes de palabra correspondientes a cada
     //                  tipo gramatical de una palabra concreta, utilizando distintos morfemas.
     //  POR HACER:      Solucionar los problemas que aparecen en el documento word 'Casuistica regex.odt'
 
-    //  GPT3 writes the plural of your word
-    if (document.types.some(type => /(pro)?noun|verb|idiom/.test(type))) {
-        let singularThenPlural = await findPlural(document.words);
-        document.words = singularThenPlural[0];
-        document.plural = singularThenPlural[1];
-    }
 
     //  GPT3 generates meanings corresponding to each gramatical type your word has
     const meaningsPromise = openai.createCompletion("text-davinci-002", 
@@ -232,6 +223,11 @@ export async function populate(document) {
     });
     promises.push(examplesPromise);
 
+    //  GPT3 writes the plural of your word, if there is one
+    if (document.types.some(type => /(pro)?noun|verb|idiom/.test(type))) {
+        promises.push(findPlural(document.words));
+    }
+
     //  This executes all the above promises asynchronously so they complete in parallel
     await Promise.all([...promises])
     .then((results) => {
@@ -260,6 +256,12 @@ export async function populate(document) {
             example = example.charAt(0).toUpperCase() + `${example.slice(1)}.`;
             examples[i] = example;
         });
+
+        if (results[5] !== undefined) {
+            let singularThenPlural = results[5];
+            document.words = singularThenPlural[0];
+            document.plural = singularThenPlural[1];
+        }
 
         document.types.forEach(type => {
             let variety = new WordVariety(type);
