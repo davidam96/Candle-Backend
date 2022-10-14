@@ -38,12 +38,12 @@ export class WordDocument {
 export class WordVariety {
     constructor(type) {
         this.type=type;
-        this.variants=[];
         this.meanings=[];
         this.translations=[];
         this.synonyms=[];
         this.antonyms=[];
         this.examples=[];
+        this.variants=[];
     }
 }
 
@@ -163,15 +163,18 @@ export async function populate(document) {
     const types_txt = document.types.join(", ");
     const varieties = [];
 
-    //  POR HACER:      Hacer que GPT3 primero distinga si la palabra viene en plural o en singular,
+    //  HECHO:          Hacer que GPT3 primero distinga si la palabra viene en plural o en singular,
     //                  y en función del resultado actuar en consecuencia en cada caso.
     //                  (el codigo de abajo y el metodo findPlural() están incompletos)
     //  POR HACER:      Hacer que GPT3 encuentre las variantes de palabra correspondientes a cada
     //                  tipo gramatical de una palabra concreta, utilizando distintos morfemas.
+    //  POR HACER:      Solucionar los problemas que aparecen en el documento word 'Casuistica regex.odt'
 
     //  GPT3 writes the plural of your word
-    if (document.types.includes("noun")) {
-        document.plural = await findPlural(document.words);
+    if (document.types.some(type => /(pro)?noun|verb|idiom/.test(type))) {
+        let singularThenPlural = await findPlural(document.words);
+        document.words = singularThenPlural[0];
+        document.plural = singularThenPlural[1];
     }
 
     //  GPT3 generates meanings corresponding to each gramatical type your word has
@@ -469,19 +472,18 @@ export function cleanText(words) {
 }
 
 
-//  POR HACER:  Este codigo esta a medio hacer...
 //  Finds the plural of your word, if there is one
 export async function findPlural(words) {
-    let plural = "";
-    await openai.createCompletion("text-davinci-002", 
+    const pluralPromise = await openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Write the plural of "${words}":\r\n`,
-        temperature: 0.5,
-        max_tokens: 200
-    }).then(result => {
-        plural = cleanText(result.data.choices[0].text);
+        prompt: `Write the singular and plural for "${words}"\r\n`
+            + "singular: ",
+        max_tokens: 100
     });
-    return plural;
+
+    let plural_txt = pluralPromise.data.choices[0].text;
+    const splitRegex = new RegExp(`singular:\s?|plural:\s?`, "gim");
+    return cleanArray(plural_txt.split(splitRegex));
 }
 
 
