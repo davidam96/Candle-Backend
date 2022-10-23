@@ -159,16 +159,17 @@ export async function checkWord(word) {
 
 //  Fills the document object with meanings for the word or phrase
 export async function populate(document) {
+    const types = document.types;
+    const typesTxt = types.join(", ");
     const promises = [];
-    const typesTxt = document.types.join(", ");
     const varieties = [];
 
     //  POR HACER:      Hacer que GPT3 encuentre las variantes de palabra correspondientes a cada
     //                  tipo gramatical de una palabra concreta, utilizando distintos sufijos.
     //  POR HACER:      Refinar el 'prompt' que hago a OpenAI en isType() para que no me ni falsos 
-    //                  positivosni falsos negativos para los tipos gramaticales de una palabra.
+    //                  positivos ni falsos negativos para los tipos gramaticales de una palabra.
 
-    document.types.forEach(type => {
+    types.forEach(type => {
         const array = [];
 
         //  GPT3 generates meanings corresponding to each gramatical type your word has
@@ -176,7 +177,7 @@ export async function populate(document) {
         {
             prompt: `Write the 3 most common definitions for the ${type} "${document.words}", `
                 + "along with an example phrase\r\n(definitions must be elaborate and long)\r\n"
-                + "(separate definition from example phrase by 'eg:')\r\n1. ",
+                + "(use 'ex:' to separate definitions from examples)\r\n1. ",
             frequency_penalty: 1.9, 
             max_tokens: 500
         });
@@ -210,6 +211,17 @@ export async function populate(document) {
         });
         array.push(antonymsPromise);
 
+        //  POR HACER: Escribe un prompt válido para que se rellenen las variantes.
+        if (/[nav]/im.test(type.charAt(0)) && document.wordCount === 1) {
+            const variantsPromise = openai.createCompletion("text-davinci-002", 
+            {
+                prompt: `Make valid ${type}s by adding suffixes to "${document.words}"\r\n`
+                    + "(use ';' as separator)\r\n",
+                presence_penalty: 1.9,
+                max_tokens: 350
+            });
+            array.push(variantsPromise);
+        }
 
         promises.push(Promise.all([...array]));
     });
@@ -222,10 +234,8 @@ export async function populate(document) {
     //  This executes all the above promises asynchronously so they complete in parallel
     await Promise.all([...promises])
     .then((results) => {
-        const types = document.types;
-
         //  Store the singular and plural in the document, if there is the case
-        if (results.length > types.length) {
+        if (promises.length > types.length) {
             let singularThenPlural = results[results.length-1];
             document.words = singularThenPlural[0];
             document.plural = singularThenPlural[1];
@@ -239,7 +249,7 @@ export async function populate(document) {
 
             //  Converts the meanings and examples response text to arrays
             const meaningsAndExamplesTxt = result[0].data.choices[0].text;
-            const meaningsAndExamples = cleanArray(meaningsAndExamplesTxt.split(/\d\./im));
+            const meaningsAndExamples = cleanArray(meaningsAndExamplesTxt.split(/\d\W?/im));
             const meanings = [], examples = [];
             meaningsAndExamples.forEach(pair => {
                 let splitRegex = new RegExp("(eg|(for\s)?ex(ample)?)[\:\,]", "im");
@@ -257,18 +267,25 @@ export async function populate(document) {
 
             //  Convert the translations response text to an array
             const translationsTxt = result[1].data.choices[0].text;
-            const translations = cleanArray(translationsTxt.split(/\d\./im));
+            const translations = cleanArray(translationsTxt.split(/\d\W?/im));
             variety.translations.push(...translations);
             
             //  Convert the synonyms response text to an array
             const synonymsTxt = result[2].data.choices[0].text;
-            const synonyms = cleanArray(synonymsTxt.split(/\d\./im));
+            const synonyms = cleanArray(synonymsTxt.split(/\d\W?/im));
             variety.synonyms.push(...synonyms);
 
             //  Convert the antonyms response text to an array
             const antonymsTxt = result[3].data.choices[0].text;
-            const antonyms = cleanArray(antonymsTxt.split(/\d\./im));
+            const antonyms = cleanArray(antonymsTxt.split(/\d\W?/im));
             variety.antonyms.push(...antonyms);
+
+            //  POR HACER: Codigo para incluir las variantes dentro de una variety.
+            if (result[4] !== undefined) {
+                const variantsTxt = result[4].data.choices[0].text;
+                const variants = cleanArray(variantsTxt.split(/\;/im));
+                variety.variants.push(...variants);
+            }
 
             varieties.push(variety);
         });  
@@ -355,16 +372,13 @@ export async function findTypes(words) {
 //  Sends a request to OpenAI asking if a given
 //  gramatical type is valid for our word
 export function isType(words, type) {
-    let n='', to=''; 
+    let to=''; 
     if (type === "verb" && words.split(/\s/gm).length > 1) {
         to = "to";
     }
-    else if (/[aei]/i.test(type.charAt(0))) {
-        n = "n";
-    }
     return openai.createCompletion("text-davinci-002", 
     {
-        prompt: `Is ${to} "${words}" frequently used as a${n} ${type}?\r\n`
+        prompt: `Is ${to} "${words}" a valid ${type}?\r\n`
         + "(yes/no)\r\n",
         max_tokens: 10
     });
